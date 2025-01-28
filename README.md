@@ -1,5 +1,3 @@
-# NFISiS_PyPi
-
 
 Project description
 
@@ -16,6 +14,8 @@ It provides:
 
     the following machine learning models in the context of fuzzy systems: NMC, NMR, NTSK, GEN_NMR, GEN_NTSK, R_NMR, R_NTSK
 
+
+
 Code of Conduct
 
 NFISiS is a library developed by Kaike Alves. Please read the Code of Conduct for guidance.
@@ -26,7 +26,7 @@ The project welcomes your expertise and enthusiasm!
 
 Small improvements or fixes are always appreciated. If you are considering larger contributions to the source code, please contact by email first.
 
-To install the library use the command:
+To install the library use the command: 
 
     pip install nfisis
 
@@ -42,7 +42,7 @@ To import the NTSK (New Takagi-Sugeno-Kang), type:
 
     from nfisis.fuzzy import NTSK
 
-NewMandaniClassifier, NewMamdaniRegressor, and NTSK are new data-driven fuzzy models that automatically create fuzzy rules and fuzzy sets. You can learn more about this models in papers: https://doi.org/10.1016/j.engappai.2024.108155 and https://doi.org/10.1007/s10614-024-10670-w
+NewMandaniClassifier, NewMamdaniRegressor, and NTSK are new data-driven fuzzy models that automatically create fuzzy rules and fuzzy sets. You can learn more about this models in papers: https://doi.org/10.1016/j.engappai.2024.108155 and https://doi.org/10.1007/s10614-024-10670-w 
 
 The library nfisis also includes the NTSK and NMR (NewMandaniRegressor) with genetic-algorithm as attribute selection. At this time, the paper containing the proposal of these models are fourthcoming.
 

@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Jan 27 15:14:19 2025
+
+@author: Kaike Sa Teles Rocha Alves
+@email: kaikerochaalves@outlook.com
+"""
+
+"""
+This is the __init__.py file for the package NFISiS.
+It exposes the BaseNMFIS and NTSK classes for easy import.
+"""
+
+from .fuzzy import NewMamdaniClassifier, NewMamdaniRegressor, NTSK
+from .genetic import GEN_NMR, GEN_NTSK
+from .ensemble import R_NTSK, R_NMR
+
+__all__ = ["NewMamdaniClassifier", "NewMamdaniRegressor", "NTSK", "GEN_NMR", "GEN_NTSK", "R_NTSK", "R_NMR"]
+
+__version__ = "0.0.1"  # Update version as needed
