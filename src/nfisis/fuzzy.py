@@ -12,7 +12,7 @@ import statistics as st
 import matplotlib.pyplot as plt
 from scipy.stats import mode
 
-class BaseNMFIS:
+class BaseNMFISiS:
     def __init__(self, fuzzy_operator):
         # Validate `fuzzy_operator`: 'prod', 'max', 'min', 'minmax'
         if fuzzy_operator not in {"prod", "max", "min", "minmax"}:
@@ -22,9 +22,9 @@ class BaseNMFIS:
         self.fuzzy_operator = fuzzy_operator
         
         # Shared attributes
-        self.OutputTrainingPhase = np.array([])
-        self.ResidualTrainingPhase = np.array([])
-        self.OutputTestPhase = np.array([])
+        self.y_pred_training = None
+        self.ResidualTrainingPhase = None
+        self.y_pred_test = None
         # Save the inputs of each rule
         self.X_ = []
     
@@ -107,7 +107,7 @@ class BaseNMFIS:
             tau_sum = 1 / self.parameters.shape[0]
         self.parameters['firing_degree'] = self.parameters['tau'] / tau_sum
         
-class NTSK(BaseNMFIS):
+class NTSK(BaseNMFISiS):
         
     r"""Regression based on New Takagi-Sugeno-Kang.
 
@@ -166,7 +166,7 @@ class NTSK(BaseNMFIS):
     
     def __init__(self, rules = 5, lambda1 = 1, adaptive_filter = "RLS", fuzzy_operator = "prod", omega = 1000):
         
-        super().__init__(fuzzy_operator)  # Chama o construtor da classe BaseNMFIS
+        super().__init__(fuzzy_operator)  # Chama o construtor da classe BaseNMFISiS
         # Validate `rules`: positive integer
         # if not isinstance(rules, int) or rules <= 0:
         if rules <= 0:
@@ -196,14 +196,7 @@ class NTSK(BaseNMFIS):
             self.parameters_RLS = {}
         if self.adaptive_filter == "wRLS":
             self.parameters = pd.DataFrame(columns = ['mean', 'std', 'P', 'p_vector', 'Theta', 'NumObservations', 'tau', 'firing_degree'])
-        # Computing the output in the training phase
-        self.OutputTrainingPhase = np.array([])
-        # Computing the residual square in the ttraining phase
-        self.ResidualTrainingPhase = np.array([])
-        # Computing the output in the testing phase
-        self.OutputTestPhase = np.array([])
-        # Computing the residual square in the testing phase
-        self.ResidualTestPhase = np.array([])
+
         # Control variables
         self.ymin = 0.
         self.ymax = 0.
@@ -212,13 +205,15 @@ class NTSK(BaseNMFIS):
         
 
     def get_params(self, deep=True):
-        return {
+        # Retrieve parameters from BaseClass and add additional ones
+        params = super().get_params(deep=deep)
+        params.update({
             'rules': self.rules,
             'lambda1': self.lambda1,
             'adaptive_filter': self.adaptive_filter,
-            'fuzzy_operator': self.fuzzy_operator,
             'omega': self.omega,
-        }
+        })
+        return params
 
     def set_params(self, **params):
         for key, value in params.items():
@@ -227,22 +222,36 @@ class NTSK(BaseNMFIS):
          
     def fit(self, X, y):
         
+        # Shape of X and y
+        X_shape = X.shape
+        y_shape = y.shape
+        
         # Correct format X to 2d
-        if len(X.shape) == 1:
+        if len(X_shape) == 1:
+            
+            # Reshape X
             X = X.reshape(-1,1)
+            
+            # Get new shape of X
+            X_shape = X.shape
         
         # Check wheather y is 1d
-        if len(y.shape) > 1 and y.shape[1] > 1:
+        if len(y_shape) > 1 and y_shape[1] > 1:
             raise TypeError(
                 "This algorithm does not support multiple outputs. "
                 "Please, give only single outputs instead."
             )
         
-        if len(y.shape) > 1:
+        if len(y_shape) > 1:
+            
+            # 1d
             y = y.ravel()
+            
+            # Get new shape of y
+            y_shape = y.shape
         
         # Check wheather y is 1d
-        if X.shape[0] != y.shape[0]:
+        if X_shape[0] != y_shape[0]:
             raise TypeError(
                 "The number of samples of X are not compatible with the number of samples in y. "
             )
@@ -262,10 +271,10 @@ class NTSK(BaseNMFIS):
             )
         
         # Concatenate X with y
-        Data = np.hstack((X, y.reshape(-1, 1), np.zeros((X.shape[0], 2))))
+        Data = np.hstack((X, y.reshape(-1, 1), np.zeros((X_shape[0], 2))))
         
         # Compute the number of attributes and samples
-        m, n = X.shape[1], X.shape[0]
+        m, n = X_shape[1], X_shape[0]
         
         # Vectorized angle calculation
         Data[1:, m + 1] = np.diff(Data[:, m])
@@ -301,9 +310,12 @@ class NTSK(BaseNMFIS):
         if empty:
             self.parameters.drop(empty, inplace=True, errors='ignore')
         
+        # Preallocate space for the outputs for better performance
+        self.y_pred_training = np.zeros((y_shape))
+        self.ResidualTrainingPhase = np.zeros((y_shape))
         # Initialize outputs
-        self.OutputTrainingPhase = np.append(self.OutputTrainingPhase, y[0])
-        self.ResidualTrainingPhase = np.append(self.ResidualTrainingPhase, (y[0] - y[0]) ** 2)
+        self.y_pred_training[0,] = y[0]
+        self.ResidualTrainingPhase[0,] = 0.
         
         for k in range(1, n):
 
@@ -331,8 +343,9 @@ class NTSK(BaseNMFIS):
                     Output = xe.T @ self.parameters.at[rule, 'Theta']
                 
                 # Store the results
-                self.OutputTrainingPhase = np.append(self.OutputTrainingPhase, Output)
-                self.ResidualTrainingPhase = np.append(self.ResidualTrainingPhase, (Output - y[k]) ** 2)
+                self.y_pred_training[k,] = Output
+                self.ResidualTrainingPhase[k,] = (Output - y[k]) ** 2
+                
             except:
                 
                 if self.adaptive_filter == "RLS":
@@ -341,7 +354,7 @@ class NTSK(BaseNMFIS):
                     self.inconsistent_lambda(X, y)
                     
                     # Return the results
-                    return self.OutputTrainingPhase
+                    return self.y_pred_training
                 
             if self.adaptive_filter == "RLS":
                 if np.isnan(self.parameters_RLS['Theta']).any() or np.isinf(self.ResidualTrainingPhase).any():
@@ -350,15 +363,23 @@ class NTSK(BaseNMFIS):
                     self.inconsistent_lambda(X, y)
                     
                     # Return the results
-                    return self.OutputTrainingPhase
+                    return self.y_pred_training
             
-        return self.OutputTrainingPhase
+        return self.y_pred_training
             
     def predict(self, X):
         
+        # Shape of X
+        X_shape = X.shape
+        
         # Correct format X to 2d
-        if len(X.shape) == 1:
+        if len(X_shape) == 1:
+            
+            # Reshape X
             X = X.reshape(-1,1)
+            
+            # Get new shape of X
+            X_shape = X.shape
             
         # Check if the inputs contain valid numbers
         if not self.is_numeric_and_finite(X):
@@ -369,12 +390,14 @@ class NTSK(BaseNMFIS):
         
         # Prepare the inputs
         X = X.reshape(-1, self.parameters.loc[0, 'mean'].shape[0])
-        self.OutputTestPhase = np.array([])
         
-        for x in X:
+        # Preallocate space for the outputs for better performance
+        self.y_pred_test = np.zeros((X_shape[0],))
+        
+        for k in range(X_shape[0]):
             
             # Prepare the first input vector
-            x = x.reshape((1, -1)).T
+            x = X[k,].reshape((1,-1)).T
             
             # Compute xe
             xe = np.insert(x.T, 0, 1, axis=1).T
@@ -392,9 +415,9 @@ class NTSK(BaseNMFIS):
                 Output = sum(self.parameters.loc[row, 'firing_degree'] * xe.T @ self.parameters.loc[row, 'Theta'] for row in self.parameters.index)
                 
             # Store the output
-            self.OutputTestPhase = np.append(self.OutputTestPhase, Output)
+            self.y_pred_test[k,] = Output
             
-        return np.array(self.OutputTestPhase)
+        return np.array(self.y_pred_test)
         
     def initialize_rule(self, mean, y, std, is_first=False):
         Theta = np.insert(np.zeros(mean.shape[0]), 0, y)[:, None]
@@ -439,7 +462,7 @@ class NTSK(BaseNMFIS):
         # Initialize the model
         model = NTSK(rules = self.rules, lambda1 = 0.01 + self.lambda1, adaptive_filter = self.adaptive_filter)
         # Train the model
-        self.OutputTrainingPhase = model.fit(X, y)
+        self.y_pred_training = model.fit(X, y)
         
         # Get rule-based structure
         self.parameters = model.parameters
@@ -484,7 +507,7 @@ class NTSK(BaseNMFIS):
         
 
 
-class NewMamdaniRegressor(BaseNMFIS):
+class NewMamdaniRegressor(BaseNMFISiS):
     
     r"""Regression based on New Mamdani Regressor.
 
@@ -536,22 +559,36 @@ class NewMamdaniRegressor(BaseNMFIS):
          
     def fit(self, X, y):
         
+        # Shape of X and y
+        X_shape = X.shape
+        y_shape = y.shape
+        
         # Correct format X to 2d
-        if len(X.shape) == 1:
+        if len(X_shape) == 1:
+            
+            # Reshape X
             X = X.reshape(-1,1)
+            
+            # Get the new shape of X
+            X_shape = X.shape
         
         # Check wheather y is 1d
-        if len(y.shape) > 1 and y.shape[1] > 1:
+        if len(y_shape) > 1 and y_shape[1] > 1:
             raise TypeError(
                 "This algorithm does not support multiple outputs. "
                 "Please, give only single outputs instead."
             )
         
-        if len(y.shape) > 1:
+        if len(y_shape) > 1:
+            
+            # 1d
             y = y.ravel()
+            
+            # Get new shape of y
+            y_shape = y.shape
         
         # Check wheather y is 1d
-        if X.shape[0] != y.shape[0]:
+        if X_shape[0] != y_shape[0]:
             raise TypeError(
                 "The number of samples of X are not compatible with the number of samples in y. "
             )
@@ -569,17 +606,14 @@ class NewMamdaniRegressor(BaseNMFIS):
                 "y contains incompatible values."
                 " Check y for non-numeric or infinity values"
             )
-            
-        # # Prepare the output
-        # y = y.reshape(-1,1)
         
         # Concatenate X with y
-        Data = np.hstack((X, y.reshape(-1, 1), np.zeros((X.shape[0], 1))))
+        Data = np.hstack((X, y.reshape(-1, 1), np.zeros((X_shape[0], 1))))
         
         # Compute the number of attributes
-        m = X.shape[1]
+        m = X_shape[1]
         # Compute the number of samples
-        n = X.shape[0]
+        n = X_shape[0]
         
         # Compute the width of each interval
         self.ymin = min(Data[:, m])
@@ -624,9 +658,12 @@ class NewMamdaniRegressor(BaseNMFIS):
         if empty:
             self.parameters.drop(empty, inplace=True, errors="ignore")
         
-        self.OutputTrainingPhase = np.array([])
+        # Preallocate space for the outputs for better performance
+        self.y_pred_training = np.zeros((y_shape))
+        self.ResidualTrainingPhase = np.zeros((y_shape))
+        
         # Compute the output in the training phase
-        for k in range(X.shape[0]):
+        for k in range(X_shape[0]):
             # Prepare the first input vector
             x = X[k,].reshape((1,-1)).T
             # Compute the normalized firing degree
@@ -634,15 +671,25 @@ class NewMamdaniRegressor(BaseNMFIS):
             # Compute the output
             Output = sum( self.parameters['y_mean'] * self.parameters['firing_degree'] ) / sum( self.parameters['firing_degree'] )
             # Store the output
-            self.OutputTrainingPhase = np.append(self.OutputTrainingPhase, Output )
+            self.y_pred_training[k,] = Output
+            # Store the output
+            self.ResidualTrainingPhase[k,] = (Output - y[k]) ** 2
         # Return the predictions
-        return self.OutputTrainingPhase
+        return self.y_pred_training
             
     def predict(self, X):
         
+        # Shape of X
+        X_shape = X.shape
+        
         # Correct format X to 2d
-        if len(X.shape) == 1:
+        if len(X_shape) == 1:
+            
+            # Reshape X
             X = X.reshape(-1,1)
+            
+            # Shape of X
+            X_shape = X.shape
             
         # Check if the inputs contain valid numbers
         if not self.is_numeric_and_finite(X):
@@ -653,9 +700,11 @@ class NewMamdaniRegressor(BaseNMFIS):
         
         # Prepare the inputs
         X = X.reshape(-1, self.parameters.loc[0, 'mean'].shape[0])
-        self.OutputTestPhase = np.array([])
         
-        for k in range(X.shape[0]):
+        # Preallocate space for the outputs for better performance
+        self.y_pred_test = np.zeros((X_shape[0],))
+        
+        for k in range(X_shape[0]):
             # Prepare the first input vector
             x = X[k,].reshape((1,-1)).T
             # Compute the normalized firing degree
@@ -666,23 +715,23 @@ class NewMamdaniRegressor(BaseNMFIS):
             else:
                 Output = sum( self.parameters['y_mean'] * self.parameters['firing_degree'] ) / sum( self.parameters['firing_degree'] )
             # Store the output
-            self.OutputTestPhase = np.append(self.OutputTestPhase, Output )
+            self.y_pred_test[k,] = Output
 
-        return self.OutputTestPhase
+        return self.y_pred_test
     
     def initialize_rule(self, y, mean, std, y_mean, y_std, num_obs, is_first=False):
         
         if is_first:
             self.parameters = pd.DataFrame([[mean, std, y_mean, y_std, num_obs, np.array([]), 1., 1., 1.]], columns = ['mean', 'std', 'y_mean', 'y_std', 'NumObservations', 'tau', 'firing_degree_min', 'firing_degree_max', 'firing_degree'])
             Output = y
-            self.OutputTrainingPhase = np.append(self.OutputTrainingPhase, Output)
+            self.y_pred_training = np.append(self.y_pred_training, Output)
             self.ResidualTrainingPhase = np.append(self.ResidualTrainingPhase,(Output - y)**2)
         
         else:
             NewRow = pd.DataFrame([[mean, std, y_mean, y_std, num_obs, np.array([]), 1., 1., 1.]], columns = ['mean', 'std', 'y_mean', 'y_std', 'NumObservations', 'tau', 'firing_degree_min', 'firing_degree_max', 'firing_degree'])
             self.parameters = pd.concat([self.parameters, NewRow], ignore_index=True)
         
-class NewMamdaniClassifier(BaseNMFIS):
+class NewMamdaniClassifier(BaseNMFISiS):
     
     """Regression based on New Mamdani Regressor.
 
@@ -739,22 +788,36 @@ class NewMamdaniClassifier(BaseNMFIS):
         
     def fit(self, X, y):
         
+        # Shape of X and y
+        X_shape = X.shape
+        y_shape = y.shape
+        
         # Correct format X to 2d
-        if len(X.shape) == 1:
+        if len(X_shape) == 1:
+            
+            # Reshape X
             X = X.reshape(-1,1)
+            
+            # Get new shape of X
+            X_shape = X.shape
         
         # Check wheather y is 1d
-        if len(y.shape) > 1 and y.shape[1] > 1:
+        if len(y_shape) > 1 and y_shape[1] > 1:
             raise TypeError(
                 "This algorithm does not support multiple outputs. "
                 "Please, give only single outputs instead."
             )
         
-        if len(y.shape) > 1:
+        if len(y_shape) > 1:
+            
+            # 1d
             y = y.ravel()
+            
+            # Get new shape of y
+            y_shape = y.shape
         
         # Check wheather y is 1d
-        if X.shape[0] != y.shape[0]:
+        if X_shape[0] != y_shape[0]:
             raise TypeError(
                 "The number of samples of X are not compatible with the number of samples in y. "
             )
@@ -817,7 +880,7 @@ class NewMamdaniClassifier(BaseNMFIS):
 
         # Preallocate space for the outputs for better performance
         # Map the numeric values back to string using the mapping
-        self.OutputTrainingPhase = np.zeros(X.shape[0], dtype=object)
+        self.y_pred_training = np.zeros(X_shape[0], dtype=object)
     
         # Precompute necessary structures to avoid repeated operations in the loop
         for k, x in enumerate(X):
@@ -834,19 +897,27 @@ class NewMamdaniClassifier(BaseNMFIS):
             Output = mode(self.parameters.loc[idxmax, 'y'], keepdims=False).mode
             
             # Store the output in the preallocated array
-            self.OutputTrainingPhase[k] = Output
+            self.y_pred_training[k] = Output
         
         # Check if the original y were string
         if self.reverse_mapping is not None:
-            self.OutputTestPhase = [self.reverse_mapping.get(val) for val in self.OutputTestPhase]
+            self.y_pred_test = [self.reverse_mapping.get(val) for val in self.y_pred_test]
         # Return the predictions
-        return self.OutputTrainingPhase
+        return self.y_pred_training
      
     def predict(self, X):
         
+        # Shape of X
+        X_shape = X.shape
+        
         # Correct format X to 2d
-        if len(X.shape) == 1:
+        if len(X_shape) == 1:
+            
+            # Reshape X
             X = X.reshape(-1,1)
+            
+            # Get new shape of X
+            X_shape = X.shape
             
         # Check if the inputs contain valid numbers
         if not self.is_numeric_and_finite(X):
@@ -854,8 +925,12 @@ class NewMamdaniClassifier(BaseNMFIS):
                 "X contains incompatible values."
                 " Check X for non-numeric or infinity values"
             )
-            
-        for k in range(X.shape[0]):
+        
+        # Preallocate space for the outputs for better performance
+        # Map the numeric values back to string using the mapping
+        self.y_pred_training = np.zeros(X_shape[0], dtype=object)
+        
+        for k in range(X_shape[0]):
             # Prepare the first input vector
             x = X[k,].reshape((1,-1)).T
             # Compute the normalized firing degree
@@ -864,13 +939,13 @@ class NewMamdaniClassifier(BaseNMFIS):
             idxmax = self.parameters["firing_degree"].astype(float).idxmax()
             # Compute the output
             Output = st.mode(self.parameters.loc[idxmax,'y'])
-            # Store the output
-            self.OutputTestPhase = np.append(self.OutputTestPhase, Output )
+            # Store the output in the preallocated array
+            self.y_pred_training[k] = Output
         
         # Check if the original y were string
         if self.reverse_mapping is not None:
-            self.OutputTestPhase = [self.reverse_mapping.get(val) for val in self.OutputTestPhase]
-        return self.OutputTestPhase
+            self.y_pred_test = [self.reverse_mapping.get(val) for val in self.y_pred_test]
+        return self.y_pred_test
     
     # Mapping function for string to numeric
     def map_str_to_numeric(self, y):
