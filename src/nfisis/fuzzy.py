@@ -6,6 +6,7 @@ Created on Mon Jan 27 15:14:19 2025
 @email: kaikerochaalves@outlook.com
 """
 # Importing libraries
+import time
 import pandas as pd
 import numpy as np
 import statistics as st
@@ -83,29 +84,38 @@ class BaseNMFISiS:
         return np.exp(-0.5 * ((m - x) ** 2) / (std ** 2))
 
     def tau(self, x):
-        for row in self.parameters.index:
+        
+        # Variable to sum tau
+        sum_tau = 0
+        for row in range(len(self.parameters_list)):
             if self.fuzzy_operator == "prod":
                 tau = np.prod(self.Gaussian_membership(
-                    self.parameters.loc[row, 'mean'], x, self.parameters.loc[row, 'std']))
+                    self.parameters_list[row][2], x,  self.parameters_list[row][3]))
             elif self.fuzzy_operator == "max":
                 tau = np.max(self.Gaussian_membership(
-                    self.parameters.loc[row, 'mean'], x, self.parameters.loc[row, 'std']))
+                    self.parameters_list[row][2], x,  self.parameters_list[row][3]))
             elif self.fuzzy_operator == "min":
                 tau = np.min(self.Gaussian_membership(
-                    self.parameters.loc[row, 'mean'], x, self.parameters.loc[row, 'std']))
+                    self.parameters_list[row][2], x,  self.parameters_list[row][3]))
             elif self.fuzzy_operator == "minmax":
                 tau = (np.min(self.Gaussian_membership(
-                    self.parameters.loc[row, 'mean'], x, self.parameters.loc[row, 'std']))
+                    self.parameters_list[row][2], x,  self.parameters_list[row][3]))
                     * np.max(self.Gaussian_membership(
-                    self.parameters.loc[row, 'mean'], x, self.parameters.loc[row, 'std'])))
-            self.parameters.at[row, 'tau'] = max(tau, 1e-10)  # Avoid zero values
+                    self.parameters_list[row][2], x,  self.parameters_list[row][3])))
+            self.parameters_list[row][5] = max(tau, 1e-10)  # Avoid zero values
+            sum_tau += max(tau, 1e-10)
+        
+        return sum_tau
 
     def firing_degree(self, x):
-        self.tau(x)
-        tau_sum = self.parameters['tau'].sum()
-        if tau_sum == 0:
-            tau_sum = 1 / self.parameters.shape[0]
-        self.parameters['firing_degree'] = self.parameters['tau'] / tau_sum
+        
+        # Initialize the total sum
+        sum_tau = self.tau(x)
+        
+        if sum_tau == 0:
+            sum_tau = 1 / self.parameters.shape[0]
+        for row in range(len(self.parameters_list)):
+            self.parameters_list[row][6] = self.parameters_list[row][5] / sum_tau
         
 class NTSK(BaseNMFISiS):
         
@@ -195,8 +205,9 @@ class NTSK(BaseNMFISiS):
             self.parameters = pd.DataFrame(columns = ['mean', 'std', 'NumObservations'])
             self.parameters_RLS = {}
         if self.adaptive_filter == "wRLS":
-            self.parameters = pd.DataFrame(columns = ['mean', 'std', 'P', 'p_vector', 'Theta', 'NumObservations', 'tau', 'firing_degree'])
-
+            self.parameters = pd.DataFrame(columns = ['mean', 'std', 'P', 'Theta', 'NumObservations', 'tau', 'firing_degree'])
+            self.parameters_list = []
+            
         # Control variables
         self.ymin = 0.
         self.ymax = 0.
@@ -317,46 +328,38 @@ class NTSK(BaseNMFISiS):
         self.y_pred_training[0,] = y[0]
         self.ResidualTrainingPhase[0,] = 0.
         
-        for k in range(1, n):
-
-            # Prepare the k-th input vector
-            x = X[k, :].reshape((1, -1)).T
-            xe = np.insert(x.T, 0, 1, axis=1).T
-            rule = int(df.loc[k, m + 2])
+        # Check the adaptive_filter
+        if self.adaptive_filter == "RLS":
             
-            # Update the rule
-            self.rule_update(rule)
-            
-            # Update the consequent parameters of the rule
-            if self.adaptive_filter == "RLS":
-                self.RLS(x, y[k], xe)
-            elif self.adaptive_filter == "wRLS":
-                self.firing_degree(x)
-                self.wRLS(x, y[k], xe)
+            for k in range(1, n):
+    
+                # Prepare the k-th input vector
+                x = X[k, :].reshape((1, -1)).T
+                xe = np.insert(x.T, 0, 1, axis=1).T
+                rule = int(df.loc[k, m + 2])
                 
-            try:
-                if self.adaptive_filter == "RLS":
+                # Update the rule
+                self.rule_update(rule)
+                
+                # Update the consequent parameters of the rule
+                self.RLS(x, y[k], xe)
+                    
+                try:
                     # Compute the output based on the most compatible rule
                     Output = xe.T @ self.parameters_RLS['Theta']
-                elif self.adaptive_filter == "wRLS":
-                    # Compute the output based on the most compatible rule
-                    Output = xe.T @ self.parameters.at[rule, 'Theta']
-                
-                # Store the results
-                self.y_pred_training[k,] = Output
-                self.ResidualTrainingPhase[k,] = (Output - y[k]) ** 2
-                
-            except:
-                
-                if self.adaptive_filter == "RLS":
+                    
+                    # Store the results
+                    self.y_pred_training[k,] = Output
+                    self.ResidualTrainingPhase[k,] = (Output - y[k]) ** 2
+                    
+                except:
                 
                     # Call the model with higher lambda 
                     self.inconsistent_lambda(X, y)
                     
                     # Return the results
                     return self.y_pred_training
-                
-            if self.adaptive_filter == "RLS":
+
                 if np.isnan(self.parameters_RLS['Theta']).any() or np.isinf(self.ResidualTrainingPhase).any():
                     
                     # Call the model with higher lambda 
@@ -364,6 +367,36 @@ class NTSK(BaseNMFISiS):
                     
                     # Return the results
                     return self.y_pred_training
+                    
+        elif self.adaptive_filter == "wRLS":
+            
+            for k in range(1, n):
+    
+                # Prepare the k-th input vector
+                x = X[k, :].reshape((1, -1)).T
+                xe = np.insert(x.T, 0, 1, axis=1).T
+                
+                # Define the rules
+                rule = int(df.loc[k, m + 2])
+                
+                # Update the rule
+                self.rule_update(rule)
+                
+                # Update the consequent parameters of the rule
+                self.firing_degree(x)
+                self.wRLS(x, y[k], xe)
+                
+                # Compute the output based on the most compatible rule
+                # Compute the output
+                Output = xe.T @ self.parameters_list[rule][1]
+                
+                # Store the results
+                self.y_pred_training[k,] = Output
+                self.ResidualTrainingPhase[k,] = (Output - y[k]) ** 2
+            
+            # Save the rules to a dataframe
+            self.parameters = pd.DataFrame(self.parameters_list, columns=["P", "Theta", "mean", "std", "NumObservations", "tau", "firing_degree"])
+
             
         return self.y_pred_training
             
@@ -394,25 +427,37 @@ class NTSK(BaseNMFISiS):
         # Preallocate space for the outputs for better performance
         self.y_pred_test = np.zeros((X_shape[0],))
         
-        for k in range(X_shape[0]):
+        if self.adaptive_filter == "RLS":
             
-            # Prepare the first input vector
-            x = X[k,].reshape((1,-1)).T
-            
-            # Compute xe
-            xe = np.insert(x.T, 0, 1, axis=1).T
-            
-            if self.adaptive_filter == "RLS":
+            for k in range(X_shape[0]):
+                
+                # Prepare the first input vector
+                x = X[k,].reshape((1,-1)).T
+                
+                # Compute xe
+                xe = np.insert(x.T, 0, 1, axis=1).T
+                
                 # Compute the output based on the most compatible rule
                 Output = xe.T @ self.parameters_RLS['Theta']
+                
+            # Store the output
+            self.y_pred_test[k,] = Output
+        
+        elif self.adaptive_filter == "wRLS":
             
-            elif self.adaptive_filter == "wRLS":
+            for k in range(X_shape[0]):
+                
+                # Prepare the first input vector
+                x = X[k,].reshape((1,-1)).T
+                
+                # Compute xe
+                xe = np.insert(x.T, 0, 1, axis=1).T
                 
                 # Compute the normalized firing degree
                 self.firing_degree(x)
             
                 # Compute the output
-                Output = sum(self.parameters.loc[row, 'firing_degree'] * xe.T @ self.parameters.loc[row, 'Theta'] for row in self.parameters.index)
+                Output = sum(row[6] * xe.T @ row[1] for row in self.parameters_list)
                 
             # Store the output
             self.y_pred_test[k,] = Output
@@ -431,29 +476,18 @@ class NTSK(BaseNMFISiS):
             if is_first:
                 self.parameters = pd.DataFrame([rule_params])
                 self.parameters_RLS['P'] = self.omega * np.eye(mean.shape[0] + 1)
-                self.parameters_RLS['p_vector'] = np.zeros(Theta.shape)
                 self.parameters_RLS['Theta'] = Theta
             else:
                 self.parameters = pd.concat([self.parameters, pd.DataFrame([rule_params])], ignore_index=True)
         
         elif self.adaptive_filter == "wRLS":
-            rule_params = {
-                'mean': mean,
-                'P': self.omega * np.eye(mean.shape[0] + 1),
-                'p_vector': np.zeros(Theta.shape),
-                'Theta': Theta,
-                'NumObservations': 1,
-                'firing_degree': 0,
-                'std': std
-            }
-            if is_first:
-                self.parameters = pd.DataFrame([rule_params])
-            else:
-                self.parameters = pd.concat([self.parameters, pd.DataFrame([rule_params])], ignore_index=True)
+            
+            # Include the rules in a list - 0: P, 1: Theta, 2: mean, 3: std, 4: NumObservations, 5: tau, 6: firing_degree
+            self.parameters_list.append([self.omega * np.eye(mean.shape[0] + 1), Theta, mean, std, 1, 0, 0])
 
     def rule_update(self, i):
         # Update the number of observations in the rule
-        self.parameters.loc[i, 'NumObservations'] = self.parameters.loc[i, 'NumObservations'] + 1
+        self.parameters_list[i][4] += 1
     
     def inconsistent_lambda(self, X, y):
         
@@ -502,8 +536,12 @@ class NTSK(BaseNMFISiS):
 
         """
         for row in self.parameters.index:
-            self.parameters.at[row, 'P'] = self.parameters.loc[row, 'P'] - (( self.parameters.loc[row, 'firing_degree'] * self.parameters.loc[row, 'P'] @ xe @ xe.T @ self.parameters.loc[row, 'P'])/(1 + self.parameters.loc[row, 'firing_degree'] * xe.T @ self.parameters.loc[row, 'P'] @ xe))
-            self.parameters.at[row, 'Theta'] = ( self.parameters.loc[row, 'Theta'] + (self.parameters.loc[row, 'P'] @ xe * self.parameters.loc[row, 'firing_degree'] * (y - xe.T @ self.parameters.loc[row, 'Theta'])) )
+            # self.parameters.at[row, 'P'] = self.parameters.loc[row, 'P'] - (( self.parameters.loc[row, 'firing_degree'] * self.parameters.loc[row, 'P'] @ xe @ xe.T @ self.parameters.loc[row, 'P'])/(1 + self.parameters.loc[row, 'firing_degree'] * xe.T @ self.parameters.loc[row, 'P'] @ xe))
+            # self.parameters.at[row, 'Theta'] = ( self.parameters.loc[row, 'Theta'] + (self.parameters.loc[row, 'P'] @ xe * self.parameters.loc[row, 'firing_degree'] * (y - xe.T @ self.parameters.loc[row, 'Theta'])) )
+            
+            firing_degree = self.parameters_list[row][6]
+            self.parameters_list[row][0] = self.parameters_list[row][0] - (( firing_degree * self.parameters_list[row][0] @ xe @ xe.T @ self.parameters_list[row][0])/(1 + firing_degree * xe.T @ self.parameters_list[row][0] @ xe))
+            self.parameters_list[row][1] = ( self.parameters_list[row][1] + (self.parameters_list[row][0] @ xe * firing_degree * (y - xe.T @ self.parameters_list[row][1])) )
         
 
 
@@ -554,8 +592,8 @@ class NewMamdaniRegressor(BaseNMFISiS):
             raise ValueError("`rules` must be a positive integer.")
         self.rules = rules
         
-        # Models' parameters
-        self.parameters = pd.DataFrame(columns=['mean', 'std', 'y', 'NumObservations', 'tau', 'firing_degree'])
+        # # Models' parameters
+        # self.parameters = pd.DataFrame(columns=['mean', 'std', 'y', 'NumObservations', 'tau', 'firing_degree'])
          
     def fit(self, X, y):
         
