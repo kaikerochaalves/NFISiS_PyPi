@@ -1,7 +1,7 @@
 
 Project description
 
-Powered by Kaike Sa Teles Rocha Alves
+Author: Kaike Sa Teles Rocha Alves
 
 NFISiS (new fuzzy inference systems) is a package that contains new machine learning models developed by Kaike Alves during his PhD research. 
 
