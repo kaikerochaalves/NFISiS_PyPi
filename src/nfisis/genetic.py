@@ -81,9 +81,9 @@ class BaseGENNFISiS:
         
         # Shared attributes
         self.parameters = None
-        self.OutputTrainingPhase = np.array([])
+        self.y_pred_training = np.array([])
         self.ResidualTrainingPhase = np.array([])
-        self.OutputTestPhase = np.array([])
+        self.y_pred_test = np.array([])
         # Save the inputs of each rule
         self.X_ = []
     
@@ -92,7 +92,8 @@ class BaseGENNFISiS:
                 'num_generations': self.num_generations,
                 'num_parents_mating': self.num_parents_mating,
                 'sol_per_pop': self.sol_per_pop,
-                'print_information': self.print_information
+                'print_information': self.print_information,
+                'parallel_processing': self.parallel_processing
                 }
 
     def set_params(self, **params):
@@ -154,7 +155,7 @@ class BaseGENNFISiS:
             )
         
         # Initialize the outputs
-        self.OutputTestPhase = np.array([])
+        self.y_pred_test = np.array([])
         
         # Selected cols
         selected_cols = self.solution
@@ -165,9 +166,9 @@ class BaseGENNFISiS:
         X_test = X[:,selected_cols]
         
         # Perform predictions
-        self.OutputTestPhase = self.model.predict(X_test)
+        self.y_pred_test = self.model.predict(X_test)
         
-        return self.OutputTestPhase
+        return self.y_pred_test
     
     
 
@@ -217,7 +218,7 @@ class GEN_NTSK(BaseGENNFISiS):
 
     """
     
-    def __init__(self, rules = 5, lambda1 = 1, adaptive_filter = "wRLS", fuzzy_operator = "prod", omega = 1000, num_generations = 10, num_parents_mating = 5, sol_per_pop = 10, error_metric = "RMSE", print_information=False, parallel_processing=None):
+    def __init__(self, rules = 5, lambda1 = 1, adaptive_filter = "wRLS", fuzzy_operator = "prod", omega = 1000, ponder = True, num_generations = 10, num_parents_mating = 5, sol_per_pop = 10, error_metric = "RMSE", print_information=False, parallel_processing=None):
         super().__init__(num_generations, num_parents_mating, sol_per_pop, error_metric, print_information, parallel_processing)  # Chama o construtor da classe BaseNMFIS
         
         # Hyperparameters
@@ -226,6 +227,7 @@ class GEN_NTSK(BaseGENNFISiS):
         self.adaptive_filter = adaptive_filter
         self.fuzzy_operator = fuzzy_operator
         self.omega = omega
+        self.ponder = ponder
         
         # Inferior limit
         self.init_range_low = 0
@@ -250,7 +252,8 @@ class GEN_NTSK(BaseGENNFISiS):
             'lambda1': self.lambda1,
             'adaptive_filter': self.adaptive_filter,
             'fuzzy_operator': self.fuzzy_operator,
-            'omega': self.omega
+            'omega': self.omega,
+            'ponder': self.ponder
         })
         return params
 
@@ -312,8 +315,8 @@ class GEN_NTSK(BaseGENNFISiS):
         
         # Saving the GA instance.
         # The filename to which the instance is saved. The name is without extension
-        filename = 'Results_Genetic_Algorithm' 
-        ga_instance.save(filename=filename)
+        # filename = 'Results_Genetic_Algorithm' 
+        # ga_instance.save(filename=filename)
         
         # # Use the next function to load the saved GA instance.
         # loaded_ga_instance = pygad.load(filename=filename)
@@ -328,11 +331,11 @@ class GEN_NTSK(BaseGENNFISiS):
         X = X[:,selected_cols]
         
         # Initializing the model
-        self.model = NTSK(rules = self.rules, lambda1 = self.lambda1, adaptive_filter = self.adaptive_filter, fuzzy_operator = self.fuzzy_operator)
+        self.model = NTSK(rules = self.rules, lambda1 = self.lambda1, adaptive_filter = self.adaptive_filter, fuzzy_operator = self.fuzzy_operator, omega = self.omega, ponder = self.ponder)
         # Train the model
         self.model.fit(X, y)
         # Get fit results
-        self.OutputTrainingPhase = self.model.OutputTrainingPhase
+        self.y_pred_training = self.model.y_pred_training
         # Get residuals
         self.ResidualTrainingPhase = self.model.ResidualTrainingPhase
         # Get parameters
@@ -449,12 +452,13 @@ class GEN_NMR(BaseGENNFISiS):
 
     """
     
-    def __init__(self, rules = 5, fuzzy_operator = "prod", num_generations = 10, num_parents_mating = 5, sol_per_pop = 10, error_metric = "RMSE", print_information=False, parallel_processing=None):
+    def __init__(self, rules = 5, fuzzy_operator = "prod", ponder = True, num_generations = 10, num_parents_mating = 5, sol_per_pop = 10, error_metric = "RMSE", print_information=False, parallel_processing=None):
         super().__init__(num_generations, num_parents_mating, sol_per_pop, error_metric, print_information, parallel_processing)  # Chama o construtor da classe BaseNMFIS
         
         # Hyperparameters
         self.rules = rules
         self.fuzzy_operator = fuzzy_operator
+        self.ponder = ponder
         
         # Inferior limit
         self.init_range_low = 0
@@ -470,6 +474,24 @@ class GEN_NMR(BaseGENNFISiS):
         self.model = None
         self.columns = None
         self.selected_cols = None
+    
+    def get_params(self, deep=True):
+        # Retrieve parameters from BaseClass and add additional ones
+        params = super().get_params(deep=deep)
+        params.update({
+            'rules': self.rules,
+            'fuzzy_operator': self.fuzzy_operator,
+            'ponder': self.ponder
+        })
+        return params
+
+    def set_params(self, **params):
+        # Set parameters in BaseClass and the new ones
+        super().set_params(**params)
+        for key, value in params.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+        return self
 
     def fit(self, X, y):
         
@@ -516,15 +538,11 @@ class GEN_NMR(BaseGENNFISiS):
             if ga_instance.best_solution_generation != -1:
                 print(f"Best fitness value reached after {ga_instance.best_solution_generation} generations.")
         
-        # Saving the GA instance.
-        # The filename to which the instance is saved. The name is without extension
-        filename = 'Results_Genetic_Algorithm' 
-        ga_instance.save(filename=filename)
-        
-        # # Use the next function to load the saved GA instance.
-        # loaded_ga_instance = pygad.load(filename=filename)
-        # loaded_ga_instance.plot_fitness()
-        
+        # # Saving the GA instance.
+        # # The filename to which the instance is saved. The name is without extension
+        # filename = 'Results_Genetic_Algorithm' 
+        # ga_instance.save(filename=filename)
+                
         # Selected cols
         selected_cols = self.solution
         selected_cols = selected_cols.flatten()
@@ -534,11 +552,11 @@ class GEN_NMR(BaseGENNFISiS):
         X = X[:,selected_cols]
         
         # Initializing the model
-        self.model = NewMamdaniRegressor(rules = self.rules, fuzzy_operator = self.fuzzy_operator)
+        self.model = NewMamdaniRegressor(rules = self.rules, fuzzy_operator = self.fuzzy_operator, ponder = self.ponder)
         # Train the model
         self.model.fit(X, y)
         # Get fit results
-        self.OutputTrainingPhase = self.model.OutputTrainingPhase
+        self.y_pred_training = self.model.y_pred_training
         # Get residuals
         self.ResidualTrainingPhase = self.model.ResidualTrainingPhase
         # Get parameters

@@ -6,10 +6,8 @@ Created on Mon Jan 27 15:14:19 2025
 @email: kaikerochaalves@outlook.com
 """
 # Importing libraries
-import time
 import pandas as pd
 import numpy as np
-import statistics as st
 import matplotlib.pyplot as plt
 from scipy.stats import mode
 
@@ -35,7 +33,9 @@ class BaseNMFISiS:
         self.X_ = []
     
     def get_params(self, deep=True):
-        return {'fuzzy_operator': self.fuzzy_operator}
+        return {'fuzzy_operator': self.fuzzy_operator,
+                'ponder': self.ponder
+                }
 
     def set_params(self, **params):
         for key, value in params.items():
@@ -275,21 +275,15 @@ class NTSK(BaseNMFISiS):
                 
         # Create a dataframe from the array
         df = pd.DataFrame(Data)
-        empty = []
         
         # Initialize rules vectorized
         for rule in range(self.rules):
             dfnew = df[df[m + 2] == rule]
-            if dfnew.empty:
-                empty.append(rule)
-                # continue
-            mean = dfnew.iloc[:, :m].mean().values[:, None]
-            self.X_.append(dfnew.iloc[:, :m].values)
-            std = np.nan_to_num(dfnew.iloc[:, :m].std().values[:, None], nan=1.0)
-            self.initialize_rule(mean, y[0], std, is_first=(rule == 0))
-                
-        if empty:
-            self.parameters.drop(empty, inplace=True, errors='ignore')
+            if not dfnew.empty:
+                mean = dfnew.iloc[:, :m].mean().values[:, None]
+                self.X_.append(dfnew.iloc[:, :m].values)
+                std = np.nan_to_num(dfnew.iloc[:, :m].std().values[:, None], nan=1.0)
+                self.initialize_rule(mean, y[0], std, dfnew.shape[0], is_first=(rule == 0))
         
         # Preallocate space for the outputs for better performance
         self.y_pred_training = np.zeros((y_shape))
@@ -308,9 +302,6 @@ class NTSK(BaseNMFISiS):
                 xe = np.insert(x.T, 0, 1, axis=1).T
                 rule = int(df.loc[k, m + 2])
                 
-                # Update the rule
-                self.rule_update(rule)
-                
                 # Update the consequent parameters of the rule
                 self.RLS(x, y[k], xe)
                     
@@ -320,7 +311,7 @@ class NTSK(BaseNMFISiS):
                     Output = xe.T @ self.parameters_RLS_list[0][1]
                     
                     # Store the results
-                    self.y_pred_training[k,] = Output
+                    self.y_pred_training[k,] = Output.item()
                     self.ResidualTrainingPhase[k,] = (Output - y[k]) ** 2
                     
                 except:
@@ -354,8 +345,8 @@ class NTSK(BaseNMFISiS):
                 # Define the rules
                 rule = int(df.loc[k, m + 2])
                 
-                # Update the rule
-                self.rule_update(rule)
+                # # Update the rule
+                # self.rule_update(rule)
                 
                 # Update the consequent parameters of the rule
                 self.firing_degree(x)
@@ -363,10 +354,10 @@ class NTSK(BaseNMFISiS):
                 
                 # Compute the output based on the most compatible rule
                 # Compute the output
-                Output = xe.T @ self.parameters_list[rule][1]
+                Output = sum(row[6] * xe.T @ row[1] for row in self.parameters_list)
                 
                 # Store the results
-                self.y_pred_training[k,] = Output
+                self.y_pred_training[k,] = Output.item()
                 self.ResidualTrainingPhase[k,] = (Output - y[k]) ** 2
             
             # Save the rules to a dataframe
@@ -414,8 +405,8 @@ class NTSK(BaseNMFISiS):
                 # Compute the output based on the most compatible rule
                 Output = xe.T @ self.parameters_RLS_list[0][1]
                 
-            # Store the output
-            self.y_pred_test[k,] = Output
+                # Store the output
+                self.y_pred_test[k,] = Output.item()
         
         elif self.adaptive_filter == "wRLS":
             
@@ -433,18 +424,18 @@ class NTSK(BaseNMFISiS):
                 # Compute the output
                 Output = sum(row[6] * xe.T @ row[1] for row in self.parameters_list)
                 
-            # Store the output
-            self.y_pred_test[k,] = Output
+                # Store the output
+                self.y_pred_test[k,] = Output.item()
             
         return np.array(self.y_pred_test)
         
-    def initialize_rule(self, mean, y, std, is_first=False):
+    def initialize_rule(self, mean, y, std, num_obs, is_first=False):
         Theta = np.insert(np.zeros(mean.shape[0]), 0, y)[:, None]
         
         if self.adaptive_filter == "RLS":
                         
             # Include the rules in a list - 0: mean, 1: std, 2: NumObservations
-            self.parameters_list.append([mean, std, 1])
+            self.parameters_list.append([mean, std, num_obs])
 
             if is_first:
                 
@@ -454,15 +445,7 @@ class NTSK(BaseNMFISiS):
         elif self.adaptive_filter == "wRLS":
             
             # Include the rules in a list - 0: P, 1: Theta, 2: mean, 3: std, 4: NumObservations, 5: tau, 6: firing_degree
-            self.parameters_list.append([self.omega * np.eye(mean.shape[0] + 1), Theta, mean, std, 1, 0, 0])
-
-    def rule_update(self, i):
-        
-        # Update the number of observations in the rule
-        if self.adaptive_filter == "RLS":
-            self.parameters_list[i][2] += 1
-        elif self.adaptive_filter == "wRLS":
-            self.parameters_list[i][4] += 1
+            self.parameters_list.append([self.omega * np.eye(mean.shape[0] + 1), Theta, mean, std, num_obs, 0, 0])
     
     def inconsistent_lambda(self, X, y):
         
@@ -725,7 +708,7 @@ class NewMamdaniRegressor(BaseNMFISiS):
             # Compute the output
             Output = sum(row[2] * row[6] for row in self.parameters_list)
             # Store the output
-            self.y_pred_training[k,] = Output
+            self.y_pred_training[k,] = Output.item()
             # Store the output
             self.ResidualTrainingPhase[k,] = (Output - y[k]) ** 2
             
@@ -770,7 +753,7 @@ class NewMamdaniRegressor(BaseNMFISiS):
             # Compute the output
             Output = sum(row[2] * row[6] for row in self.parameters_list)
             # Store the output
-            self.y_pred_test[k,] = Output
+            self.y_pred_test[k,] = Output.item()
 
         return self.y_pred_test
     

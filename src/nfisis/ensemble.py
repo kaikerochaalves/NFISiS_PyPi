@@ -16,7 +16,8 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import mean_absolute_error
 from sklearn.metrics import mean_absolute_percentage_error
-from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import Pool, cpu_count
+from tqdm import tqdm
 
 # Import models
 from nfisis.fuzzy import NTSK, NewMamdaniRegressor
@@ -39,8 +40,8 @@ class BaseRNFISiS:
     error_metric (str or callable):
     The metric used to evaluate the performance of candidate solutions. This can be a string representing a predefined metric (e.g., "mse" for mean squared error) or a custom function that returns an error score.
     
-    print_information (bool):
-    A flag indicating whether to display detailed progress information during training. When set to True, the model logs information such as the current generation, fitness scores, and optimization status.
+    ponder (bool):
+    Indicates weather the fuzzy model will ponder the information.
     
     parallel_processing (int):
     Determines whether to use parallel processing for the optimization process. 
@@ -51,7 +52,7 @@ class BaseRNFISiS:
 
     """
     
-    def __init__(self, n_estimators, n_trials, combination, error_metric, print_information, parallel_processing):
+    def __init__(self, n_estimators, n_trials, combination, error_metric, parallel_processing):
         
         # Validate `n_estimators`: positive integer
         if not isinstance(n_estimators, int) or n_estimators <= 0:
@@ -66,12 +67,9 @@ class BaseRNFISiS:
         
         if error_metric not in {"RMSE", "NRMSE", "NDEI", "MAE", "MAPE", "CPPM"}:
             raise ValueError('The hyperparameter error_metric not in list ["RMSE", "NRMSE", "NDEI", "MAE", "MAPE", "CPPM"].')
-        
-        if print_information not in {True, False}:
-            raise ValueError("print_information must be True of False.")
-            
-        if not isinstance(parallel_processing, int) or (parallel_processing >= 1):
-            raise ValueError("parallel_processing must be an interger greater than zero or none.")
+                    
+        if not isinstance(parallel_processing, int):
+            raise ValueError("parallel_processing must be an interger greater than -1.")
             
         # Hyperparameters of the genetic algorithm
         # Number of estimators
@@ -82,8 +80,6 @@ class BaseRNFISiS:
         self.n_trials = n_trials
         # Combination method
         self.combination = combination
-        # Print information
-        self.print_information = print_information
         # Parallel processing
         self.parallel_processing = parallel_processing
         
@@ -93,16 +89,17 @@ class BaseRNFISiS:
         
         # Shared attributes
         self.parameters = None
-        self.OutputTrainingPhase = np.array([])
+        self.y_pred_training = np.array([])
         self.ResidualTrainingPhase = np.array([])
-        self.OutputTestPhase = np.array([])
+        self.y_pred_test = np.array([])
         # Save the inputs of each rule
         self.X_ = []
     
     def get_params(self, deep=True):
         return {'n_estimators': self.n_estimators,
+                'n_trials': self.n_trials,
+                'combination': self.combination,
                 'error_metric': self.error_metric,
-                'print_information': self.print_information,
                 'parallel_processing': self.parallel_processing
                 }
 
@@ -152,52 +149,36 @@ class BaseRNFISiS:
         
         # Keep X
         self.X_predict = X
-        
-        # Execute in parallel or not
-        if self.parallel_processing == 0:
+        # for n_estimator in tqdm(range(self.n_estimators), desc="Training"):
+        for i in tqdm(range(len(self.best_models)), desc="Predicting"):
             
-            for i in range(len(self.best_models)):
-                
-                # Get correct columns
-                selected_cols = self.selected_cols[i]
-                # Get X_selected
-                X_selected = self.X_predict[:,selected_cols]
-                # Run predictions
-                _ = self.best_models[i].predict(X_selected)
-                
-        else:
-            
-            if self.parallel_processing == -1:
-                max_workers_ = os.cpu_count()
-            else:
-                max_workers_ = self.parallel_processing
-            
-            # Function to process a single model
-            def process_model(i):
-                selected_cols = self.selected_cols[i]
-                X_selected = self.X_predict[:, selected_cols]
-                return self.best_models[i].predict(X_selected)
-            
-            # Execute in parallel
-            with ThreadPoolExecutor(max_workers = max_workers_) as executor:
-                for _ in executor.map(process_model, range(len(self.best_models))):
-                    pass  # Just run the function without storing the results
+            # Get correct columns
+            selected_cols = self.selected_cols[i]
+            # Get X_selected
+            X_selected = self.X_predict[:,selected_cols]
+            # Run predictions
+            _ = self.best_models[i].predict(X_selected)
         
         # Get predicted results
-        # Assuming self.best_models is a list of objects and each has an attribute OutputTrainingPhase
-        output_testing_phases = np.array([model.OutputTestPhase for model in self.best_models])
+        # Assuming self.best_models is a list of objects and each has an attribute y_pred_training
+        output_testing_phases = np.array([model.y_pred_test for model in self.best_models])
         
         # Compute the mean along the rows (axis=0)
         if self.combination == "mean":
-            self.OutputTestPhase = np.mean(output_testing_phases, axis=0)
+            self.y_pred_test = np.mean(output_testing_phases, axis=0)
         elif self.combination == "median":
-            self.OutputTestPhase = np.median(output_testing_phases, axis=0)
+            self.y_pred_test = np.median(output_testing_phases, axis=0)
         elif self.combination == "weighted_average":
             # Compute the output
-            self.OutputTestPhase = np.average(output_testing_phases, axis=0, weights=self.scores)
+            self.y_pred_test = np.average(output_testing_phases, axis=0, weights=self.scores)
         
-        return self.OutputTestPhase
+        return self.y_pred_test
     
+    def process_model(self, i):
+        """Function to process a single model for parallel execution."""
+        selected_cols = self.selected_cols[i]
+        X_selected = self.X_predict[:, selected_cols]
+        self.best_models[i].predict(X_selected)
     
 
 class R_NTSK(BaseRNFISiS):
@@ -219,16 +200,18 @@ class R_NTSK(BaseRNFISiS):
 
     """
     
-    def __init__(self, n_estimators = 100, n_trials = 5, combination = "mean", error_metric = "RMSE", print_information=False, parallel_processing=0):
-        super().__init__(n_estimators, n_trials, combination, error_metric, print_information, parallel_processing)  # Chama o construtor da classe BaseNMFIS
+    def __init__(self, n_estimators = 100, n_trials = 5, combination = "mean", error_metric = "RMSE", parallel_processing=0):
+        super().__init__(n_estimators, n_trials, combination, error_metric, parallel_processing)  # Chama o construtor da classe BaseNMFIS
         
         # Models` Data
-        self.X = np.array([])
-        self.y = np.array([])
-        self.X_train = np.array([])
-        self.y_train = np.array([])
-        self.X_test = np.array([])
-        self.y_test = np.array([])
+        self.X = None
+        self.y = None
+        self.X_train = None
+        self.y_train = None
+        self.X_val = None
+        self.y_val = None
+        self.X_test = None
+        self.y_test = None
         self.errors = []
         self.scores = np.array([])
         self.best_models = []
@@ -268,7 +251,7 @@ class R_NTSK(BaseRNFISiS):
         # Execute in parallel or not
         if self.parallel_processing == 0:
             # Selected cols
-            for n_estimator in range(self.n_estimators):
+            for n_estimator in tqdm(range(self.n_estimators), desc="Training"):
                 
                 # Look for good models
                 lowest_error, best_model, best_selected_cols = self.trials()
@@ -282,10 +265,13 @@ class R_NTSK(BaseRNFISiS):
                 max_workers_ = os.cpu_count()
             else:
                 max_workers_ = self.parallel_processing
+                
+            with Pool(processes=min(max_workers_, cpu_count())) as pool:
+                results = [pool.apply_async(self.process_estimator, args=(i,)) for i in range(self.n_estimators)]
+        
             
-            with ThreadPoolExecutor(max_workers = max_workers_) as executor:
-                # Submit tasks to the executor for each estimator
-                results = list(executor.map(self.process_estimator, range(self.n_estimators)))
+                # Collect results
+                results = [r.get() for r in results]  # Ensure all tasks complete
     
             # Extract results
             for lowest_error, best_model, best_selected_cols in results:
@@ -294,14 +280,14 @@ class R_NTSK(BaseRNFISiS):
                 self.selected_cols.append(best_selected_cols)
         
         # Get fit results
-        # Assuming self.best_models is a list of objects and each has an attribute OutputTrainingPhase
-        output_training_phases = np.array([model.OutputTrainingPhase for model in self.best_models])
+        # Assuming self.best_models is a list of objects and each has an attribute y_pred_training
+        output_training_phases = np.array([model.y_pred_training for model in self.best_models])
         
         # Compute the mean along the rows (axis=0)
         if self.combination == "mean":
-            self.OutputTrainingPhase = np.mean(output_training_phases, axis=0)
+            self.y_pred_training = np.mean(output_training_phases, axis=0)
         elif self.combination == "median":
-            self.OutputTrainingPhase = np.median(output_training_phases, axis=0)
+            self.y_pred_training = np.median(output_training_phases, axis=0)
         elif self.combination == "weighted_average":
             # Convert errors from list to array
             errors = np.array(self.errors)  # Example list of errors
@@ -309,10 +295,10 @@ class R_NTSK(BaseRNFISiS):
             max_error = np.max(errors) + 1  # Find the maximum error
             self.scores = max_error - errors  # Subtract each error from the maximum
             # Compute the output
-            self.OutputTrainingPhase = np.average(output_training_phases, axis=0, weights=self.scores)
+            self.y_pred_training = np.average(output_training_phases, axis=0, weights=self.scores)
         
         # Get residuals
-        self.ResidualTrainingPhase = (self.y - self.OutputTrainingPhase)**2
+        self.ResidualTrainingPhase = (self.y - self.y_pred_training)**2
         # Get the position of the minimum error
         min_idx = min(enumerate(self.errors), key=lambda x: x[1])[0]
         # Get parameters
@@ -320,7 +306,7 @@ class R_NTSK(BaseRNFISiS):
         # Get parameters
         self.X_ = self.best_models[min_idx].X_
         
-        return self.OutputTrainingPhase
+        return self.y_pred_training
     
     def process_estimator(self, _):
         """
@@ -378,7 +364,8 @@ class R_NTSK(BaseRNFISiS):
         # Hyperparameters
         rule = random.randrange(1,20)
         adaptive_filter = "wRLS"
-        fuzzy_operator = random.choice(["prod", "min", "max", "minmax"])
+        fuzzy_operator = random.choice(["prod", "min", "max", "minmax", "equal"])
+        ponder = random.choice([True, False])
         
         if True not in selected_cols:
             
@@ -387,12 +374,12 @@ class R_NTSK(BaseRNFISiS):
             
         # Define the columns
         X_train = self.X_train[:,selected_cols]
-        X_val = self.X_train[:,selected_cols]
+        X_val = self.X_val[:,selected_cols]
         y_train = self.y_train[:]
-        y_val = self.y_train[:]
+        y_val = self.y_val[:]
         
         # Initializing the model
-        model = NTSK(rules = rule, adaptive_filter = adaptive_filter, fuzzy_operator = fuzzy_operator)
+        model = NTSK(rules = rule, adaptive_filter = adaptive_filter, fuzzy_operator = fuzzy_operator, ponder = ponder)
         # Train the model
         model.fit(X_train, y_train)
         # Test the model
@@ -465,16 +452,18 @@ class R_NMR(BaseRNFISiS):
 
     """
     
-    def __init__(self, n_estimators = 100, n_trials = 5, combination = "mean", error_metric = "RMSE", print_information=False, parallel_processing=0):
-        super().__init__(n_estimators, n_trials, combination, error_metric, print_information, parallel_processing)  # Chama o construtor da classe BaseNMFIS
+    def __init__(self, n_estimators = 100, n_trials = 5, combination = "mean", error_metric = "RMSE", parallel_processing=0):
+        super().__init__(n_estimators, n_trials, combination, error_metric, parallel_processing)  # Chama o construtor da classe BaseNMFIS
 
         # Models` Data
-        self.X = np.array([])
-        self.y = np.array([])
-        self.X_train = np.array([])
-        self.y_train = np.array([])
-        self.X_test = np.array([])
-        self.y_test = np.array([])
+        self.X = None
+        self.y = None
+        self.X_train = None
+        self.y_train = None
+        self.X_val = None
+        self.y_val = None
+        self.X_test = None
+        self.y_test = None
         self.errors = []
         self.scores = np.array([])
         self.best_models = []
@@ -514,7 +503,7 @@ class R_NMR(BaseRNFISiS):
         # Execute in parallel or not
         if self.parallel_processing == 0:
             # Selected cols
-            for n_estimator in range(self.n_estimators):
+            for n_estimator in tqdm(range(self.n_estimators), desc="Training"):
                 
                 # Look for good models
                 lowest_error, best_model, best_selected_cols = self.trials()
@@ -529,9 +518,12 @@ class R_NMR(BaseRNFISiS):
             else:
                 max_workers_ = self.parallel_processing
             
-            with ThreadPoolExecutor(max_workers = max_workers_) as executor:
-                # Submit tasks to the executor for each estimator
-                results = list(executor.map(self.process_estimator, range(self.n_estimators)))
+            with Pool(processes=min(max_workers_, cpu_count())) as pool:
+                results = [pool.apply_async(self.process_estimator, args=(i,)) for i in range(self.n_estimators)]
+        
+            
+                # Collect results
+                results = [r.get() for r in results]  # Ensure all tasks complete
     
             # Extract results
             for lowest_error, best_model, best_selected_cols in results:
@@ -540,15 +532,14 @@ class R_NMR(BaseRNFISiS):
                 self.selected_cols.append(best_selected_cols)
         
         # Get fit results
-        # Assuming self.best_models is a list of objects and each has an attribute OutputTrainingPhase
-        output_training_phases = np.array([model.OutputTrainingPhase for model in self.best_models])
-        print("Output training phases shape:", output_training_phases.shape)
+        # Assuming self.best_models is a list of objects and each has an attribute y_pred_training
+        output_training_phases = np.array([model.y_pred_training for model in self.best_models])
         
         # Compute the mean along the rows (axis=0)
         if self.combination == "mean":
-            self.OutputTrainingPhase = np.mean(output_training_phases, axis=0)
+            self.y_pred_training = np.mean(output_training_phases, axis=0)
         elif self.combination == "median":
-            self.OutputTrainingPhase = np.median(output_training_phases, axis=0)
+            self.y_pred_training = np.median(output_training_phases, axis=0)
         elif self.combination == "weighted_average":
             # Convert errors from list to array
             errors = np.array(self.errors)  # Example list of errors
@@ -556,10 +547,10 @@ class R_NMR(BaseRNFISiS):
             max_error = np.max(errors) + 1  # Find the maximum error
             self.scores = max_error - errors  # Subtract each error from the maximum
             # Compute the output
-            self.OutputTrainingPhase = np.average(output_training_phases, axis=0, weights=self.scores)
+            self.y_pred_training = np.average(output_training_phases, axis=0, weights=self.scores)
         
         # Get residuals
-        self.ResidualTrainingPhase = (self.y - self.OutputTrainingPhase)**2
+        self.ResidualTrainingPhase = (self.y - self.y_pred_training)**2
         # Get the position of the minimum error
         min_idx = min(enumerate(self.errors), key=lambda x: x[1])[0]
         # Get parameters
@@ -567,7 +558,7 @@ class R_NMR(BaseRNFISiS):
         # Get parameters
         self.X_ = self.best_models[min_idx].X_
         
-        return self.OutputTrainingPhase
+        return self.y_pred_training
     
     def process_estimator(self, _):
         """
@@ -624,7 +615,8 @@ class R_NMR(BaseRNFISiS):
         
         # Hyperparameters
         rule = random.randrange(1,20)
-        fuzzy_operator = random.choice(["prod", "min", "max", "minmax"])
+        fuzzy_operator = random.choice(["prod", "min", "max", "minmax", "equal"])
+        ponder = random.choice([True, False])
         
         if True not in selected_cols:
             
@@ -633,12 +625,12 @@ class R_NMR(BaseRNFISiS):
             
         # Define the columns
         X_train = self.X_train[:,selected_cols]
-        X_val = self.X_train[:,selected_cols]
+        X_val = self.X_val[:,selected_cols]
         y_train = self.y_train[:]
-        y_val = self.y_train[:]
+        y_val = self.y_val[:]
         
         # Initializing the model
-        model = NewMamdaniRegressor(rules = rule, fuzzy_operator = fuzzy_operator)
+        model = NewMamdaniRegressor(rules = rule, fuzzy_operator = fuzzy_operator, ponder = ponder)
         # Train the model
         model.fit(X_train, y_train)
         # Test the model
