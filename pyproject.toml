@@ -7,10 +7,12 @@ packages = ["src/nfisis"]
 
 [project]
 name = "nfisis"
-version = "0.0.1"
+version = "0.0.3"
 authors = [
-  { name="Kaike Sa Teles Rocha Alves", email="kaikerochaalves@outlook.com" },
+    { name = "Kaike Sa Teles Rocha Alves", email = "kaikerochaalves@outlook.com" }
 ]
+
+
 dependencies = [
 "numpy",
 "scipy",
@@ -19,7 +21,7 @@ dependencies = [
 "scikit-learn",
 "matplotlib"
 ]
-description = "New Fuzzy Inference Systems"
+description = "New Fuzzy Inference Systems (NFISiS)"
 readme = "README.md"
 requires-python = ">=3.0"
 classifiers = [
