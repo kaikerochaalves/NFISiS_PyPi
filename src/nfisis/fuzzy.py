@@ -14,13 +14,18 @@ import matplotlib.pyplot as plt
 from scipy.stats import mode
 
 class BaseNMFISiS:
-    def __init__(self, fuzzy_operator):
-        # Validate `fuzzy_operator`: 'prod', 'max', 'min', 'minmax'
-        if fuzzy_operator not in {"prod", "max", "min", "minmax"}:
-            raise ValueError("fuzzy_operator must be one of {'prod', 'max', 'min', 'minmax'}.")
+    def __init__(self, fuzzy_operator, ponder):
+        # Validate `fuzzy_operator`: 'prod', 'max', 'min', 'minmax', 'equal'
+        if fuzzy_operator not in {"prod", "max", "min", "minmax", "equal"}:
+            raise ValueError("fuzzy_operator must be one of {'prod', 'max', 'min', 'minmax', 'equal'}.")
+        # Validate `pond`: True or False
+        if not isinstance(ponder, bool):
+            raise ValueError("`ponder` must be a boolean.")
         
         # Hyperparameters
         self.fuzzy_operator = fuzzy_operator
+        # Ponder
+        self.ponder = ponder
         
         # Shared attributes
         self.y_pred_training = None
@@ -82,40 +87,6 @@ class BaseNMFISiS:
         epsilon = 1e-10
         std = np.maximum(std, epsilon)
         return np.exp(-0.5 * ((m - x) ** 2) / (std ** 2))
-
-    def tau(self, x):
-        
-        # Variable to sum tau
-        sum_tau = 0
-        for row in range(len(self.parameters_list)):
-            if self.fuzzy_operator == "prod":
-                tau = np.prod(self.Gaussian_membership(
-                    self.parameters_list[row][2], x,  self.parameters_list[row][3]))
-            elif self.fuzzy_operator == "max":
-                tau = np.max(self.Gaussian_membership(
-                    self.parameters_list[row][2], x,  self.parameters_list[row][3]))
-            elif self.fuzzy_operator == "min":
-                tau = np.min(self.Gaussian_membership(
-                    self.parameters_list[row][2], x,  self.parameters_list[row][3]))
-            elif self.fuzzy_operator == "minmax":
-                tau = (np.min(self.Gaussian_membership(
-                    self.parameters_list[row][2], x,  self.parameters_list[row][3]))
-                    * np.max(self.Gaussian_membership(
-                    self.parameters_list[row][2], x,  self.parameters_list[row][3])))
-            self.parameters_list[row][5] = max(tau, 1e-10)  # Avoid zero values
-            sum_tau += max(tau, 1e-10)
-        
-        return sum_tau
-
-    def firing_degree(self, x):
-        
-        # Initialize the total sum
-        sum_tau = self.tau(x)
-        
-        if sum_tau == 0:
-            sum_tau = 1 / self.parameters.shape[0]
-        for row in range(len(self.parameters_list)):
-            self.parameters_list[row][6] = self.parameters_list[row][5] / sum_tau
         
 class NTSK(BaseNMFISiS):
         
@@ -174,9 +145,9 @@ class NTSK(BaseNMFISiS):
 
     """
     
-    def __init__(self, rules = 5, lambda1 = 1, adaptive_filter = "RLS", fuzzy_operator = "prod", omega = 1000):
+    def __init__(self, rules = 5, lambda1 = 1, adaptive_filter = "RLS", fuzzy_operator = "prod", omega = 1000, ponder = True):
         
-        super().__init__(fuzzy_operator)  # Chama o construtor da classe BaseNMFISiS
+        super().__init__(fuzzy_operator, ponder)  # Chama o construtor da classe BaseNMFISiS
         # Validate `rules`: positive integer
         # if not isinstance(rules, int) or rules <= 0:
         if rules <= 0:
@@ -202,10 +173,9 @@ class NTSK(BaseNMFISiS):
         
         # Define the rule-based structure
         if self.adaptive_filter == "RLS":
-            self.parameters = pd.DataFrame(columns = ['mean', 'std', 'NumObservations'])
-            self.parameters_RLS = {}
+            self.parameters_list = []
+            self.parameters_RLS_list = []
         if self.adaptive_filter == "wRLS":
-            self.parameters = pd.DataFrame(columns = ['mean', 'std', 'P', 'Theta', 'NumObservations', 'tau', 'firing_degree'])
             self.parameters_list = []
             
         # Control variables
@@ -345,8 +315,9 @@ class NTSK(BaseNMFISiS):
                 self.RLS(x, y[k], xe)
                     
                 try:
+                    
                     # Compute the output based on the most compatible rule
-                    Output = xe.T @ self.parameters_RLS['Theta']
+                    Output = xe.T @ self.parameters_RLS_list[0][1]
                     
                     # Store the results
                     self.y_pred_training[k,] = Output
@@ -360,13 +331,17 @@ class NTSK(BaseNMFISiS):
                     # Return the results
                     return self.y_pred_training
 
-                if np.isnan(self.parameters_RLS['Theta']).any() or np.isinf(self.ResidualTrainingPhase).any():
+                if np.isnan(self.parameters_RLS_list[0][1]).any() or np.isinf(self.ResidualTrainingPhase).any():
                     
                     # Call the model with higher lambda 
                     self.inconsistent_lambda(X, y)
                     
                     # Return the results
                     return self.y_pred_training
+                
+            # Save the rules to a dataframe
+            self.parameters = pd.DataFrame(self.parameters_list, columns=["mean", "std", "NumObservations"])
+            self.parameters_RLS = pd.DataFrame(self.parameters_RLS_list, columns=["P", "Theta"])
                     
         elif self.adaptive_filter == "wRLS":
             
@@ -397,7 +372,6 @@ class NTSK(BaseNMFISiS):
             # Save the rules to a dataframe
             self.parameters = pd.DataFrame(self.parameters_list, columns=["P", "Theta", "mean", "std", "NumObservations", "tau", "firing_degree"])
 
-            
         return self.y_pred_training
             
     def predict(self, X):
@@ -438,7 +412,7 @@ class NTSK(BaseNMFISiS):
                 xe = np.insert(x.T, 0, 1, axis=1).T
                 
                 # Compute the output based on the most compatible rule
-                Output = xe.T @ self.parameters_RLS['Theta']
+                Output = xe.T @ self.parameters_RLS_list[0][1]
                 
             # Store the output
             self.y_pred_test[k,] = Output
@@ -466,19 +440,16 @@ class NTSK(BaseNMFISiS):
         
     def initialize_rule(self, mean, y, std, is_first=False):
         Theta = np.insert(np.zeros(mean.shape[0]), 0, y)[:, None]
+        
         if self.adaptive_filter == "RLS":
-            rule_params = {
-                'mean': mean,
-                'std': std,
-                'NumObservations': 1
-            }
+                        
+            # Include the rules in a list - 0: mean, 1: std, 2: NumObservations
+            self.parameters_list.append([mean, std, 1])
 
             if is_first:
-                self.parameters = pd.DataFrame([rule_params])
-                self.parameters_RLS['P'] = self.omega * np.eye(mean.shape[0] + 1)
-                self.parameters_RLS['Theta'] = Theta
-            else:
-                self.parameters = pd.concat([self.parameters, pd.DataFrame([rule_params])], ignore_index=True)
+                
+                # Include the rules in a list - 0: mean, 1: std, 2: NumObservations
+                self.parameters_RLS_list.append([self.omega * np.eye(mean.shape[0] + 1), Theta])
         
         elif self.adaptive_filter == "wRLS":
             
@@ -486,8 +457,12 @@ class NTSK(BaseNMFISiS):
             self.parameters_list.append([self.omega * np.eye(mean.shape[0] + 1), Theta, mean, std, 1, 0, 0])
 
     def rule_update(self, i):
+        
         # Update the number of observations in the rule
-        self.parameters_list[i][4] += 1
+        if self.adaptive_filter == "RLS":
+            self.parameters_list[i][2] += 1
+        elif self.adaptive_filter == "wRLS":
+            self.parameters_list[i][4] += 1
     
     def inconsistent_lambda(self, X, y):
         
@@ -511,6 +486,48 @@ class NTSK(BaseNMFISiS):
         self.region = model.region
         self.last_y = model.last_y
         
+    def tau(self, x):
+        
+        # Variable to sum tau
+        sum_tau = 0
+        for row in range(len(self.parameters_list)):
+            if self.fuzzy_operator == "prod":
+                tau = np.prod(self.Gaussian_membership(
+                    self.parameters_list[row][2], x,  self.parameters_list[row][3]))
+            elif self.fuzzy_operator == "max":
+                tau = np.max(self.Gaussian_membership(
+                    self.parameters_list[row][2], x,  self.parameters_list[row][3]))
+            elif self.fuzzy_operator == "min":
+                tau = np.min(self.Gaussian_membership(
+                    self.parameters_list[row][2], x,  self.parameters_list[row][3]))
+            elif self.fuzzy_operator == "minmax":
+                tau = (np.min(self.Gaussian_membership(
+                    self.parameters_list[row][2], x,  self.parameters_list[row][3]))
+                    * np.max(self.Gaussian_membership(
+                    self.parameters_list[row][2], x,  self.parameters_list[row][3])))
+            
+            elif self.fuzzy_operator == "equal":
+                tau = 1
+            
+            # Check if it is necessary to multiply tau by the number of observations
+            if self.ponder == True:
+                tau *= self.parameters_list[row][4]
+                
+            self.parameters_list[row][5] = max(tau, 1e-10)  # Avoid zero values
+            sum_tau += max(tau, 1e-10)
+        
+        return sum_tau
+
+    def firing_degree(self, x):
+        
+        # Initialize the total sum
+        sum_tau = self.tau(x)
+        
+        if sum_tau == 0:
+            sum_tau = 1 / self.parameters.shape[0]
+        for row in range(len(self.parameters_list)):
+            self.parameters_list[row][6] = self.parameters_list[row][5] / sum_tau
+        
     def RLS(self, x, y, xe):
         """
         Conventional RLS algorithm
@@ -520,13 +537,13 @@ class NTSK(BaseNMFISiS):
             lambda: forgeting factor
     
         """
-               
-        lambda1 = 1. if self.lambda1 + xe.T @ self.parameters_RLS['P'] @ xe == 0 else self.lambda1
+        
+        lambda1 = 1. if self.lambda1 + xe.T @ self.parameters_RLS_list[0][0] @ xe == 0 else self.lambda1
             
         # K is used here just to make easier to see the equation of the covariance matrix
-        K = ( self.parameters_RLS['P'] @ xe ) / ( lambda1 + xe.T @ self.parameters_RLS['P'] @ xe )
-        self.parameters_RLS['P'] = ( 1 / lambda1 ) * ( self.parameters_RLS['P'] - K @ xe.T @ self.parameters_RLS['P'] )
-        self.parameters_RLS['Theta'] = self.parameters_RLS['Theta'] + ( self.parameters_RLS['P'] @ xe ) * (y - xe.T @ self.parameters_RLS['Theta'] )
+        K = ( self.parameters_RLS_list[0][0] @ xe ) / ( lambda1 + xe.T @ self.parameters_RLS_list[0][0] @ xe )
+        self.parameters_RLS_list[0][0] = ( 1 / lambda1 ) * ( self.parameters_RLS_list[0][0] - K @ xe.T @ self.parameters_RLS_list[0][0] )
+        self.parameters_RLS_list[0][1] = self.parameters_RLS_list[0][1] + ( self.parameters_RLS_list[0][0] @ xe ) * (y - xe.T @ self.parameters_RLS_list[0][1] )
             
 
     def wRLS(self, x, y, xe):
@@ -535,7 +552,7 @@ class NTSK(BaseNMFISiS):
         An Approach to Online Identification of Takagi-Sugeno Fuzzy Models - Angelov and Filev
 
         """
-        for row in self.parameters.index:
+        for row in range(len(self.parameters_list)):
             # self.parameters.at[row, 'P'] = self.parameters.loc[row, 'P'] - (( self.parameters.loc[row, 'firing_degree'] * self.parameters.loc[row, 'P'] @ xe @ xe.T @ self.parameters.loc[row, 'P'])/(1 + self.parameters.loc[row, 'firing_degree'] * xe.T @ self.parameters.loc[row, 'P'] @ xe))
             # self.parameters.at[row, 'Theta'] = ( self.parameters.loc[row, 'Theta'] + (self.parameters.loc[row, 'P'] @ xe * self.parameters.loc[row, 'firing_degree'] * (y - xe.T @ self.parameters.loc[row, 'Theta'])) )
             
@@ -560,13 +577,14 @@ class NewMamdaniRegressor(BaseNMFISiS):
         Number of fuzzy rules will be created.
 
     
-    fuzzy_operator : {'prod', 'max', 'min'}, default='prod'
+    fuzzy_operator : {'prod', 'max', 'min', 'equal'}, default='prod'
         Choose the fuzzy operator:
 
         - 'prod' will use :`product`
         - 'max' will use :class:`maximum value`
         - 'min' will use :class:`minimum value`
         - 'minmax' will use :class:`minimum value multiplied by maximum`
+        - 'equal' use the same firing degree for all rules
 
     
     Attributes
@@ -586,14 +604,16 @@ class NewMamdaniRegressor(BaseNMFISiS):
 
     """
     
-    def __init__(self, rules=5, fuzzy_operator='prod'):
-        super().__init__(fuzzy_operator)
+    def __init__(self, rules=5, fuzzy_operator='prod', ponder = True):
+        super().__init__(fuzzy_operator, ponder)
         if rules <= 0:
             raise ValueError("`rules` must be a positive integer.")
+        
+        # Number of rules
         self.rules = rules
         
-        # # Models' parameters
-        # self.parameters = pd.DataFrame(columns=['mean', 'std', 'y', 'NumObservations', 'tau', 'firing_degree'])
+        # Parameters
+        self.parameters_list = []
          
     def fit(self, X, y):
         
@@ -669,32 +689,28 @@ class NewMamdaniRegressor(BaseNMFISiS):
         
         # Create a dataframe from the array
         df = pd.DataFrame(Data)
-        empty = []
         
         # Initializing the rules
         for rule in range(self.rules):
             dfnew = df[df[m + 1] == rule]
-            if dfnew.empty:
-                empty.append(rule)
+            
+            if not dfnew.empty:
+                # empty.append(rule)
                 
-            # Compute statistics for mean and standard deviation
-            mean = dfnew.iloc[:, :m].mean().values.reshape(-1, 1)
-            self.X_.append(dfnew.iloc[:, :m].values)
-            std = dfnew.iloc[:, :m].std().values.reshape(-1, 1)
-            y_mean = dfnew.iloc[:, m].mean()
-            y_std = dfnew.iloc[:, m].std()
-            num_obs = len(dfnew.iloc[:, m])
-            
-            # Handle missing or invalid standard deviation values
-            std = np.where(np.isnan(std) | (std == 0.), 1.0, std)
-            y_std = 1.0 if np.isnan(y_std) or y_std == 0.0 else y_std
-            
-            # Initialize the appropriate rule
-            self.initialize_rule(y[0], mean, std, y_mean, y_std, num_obs, is_first=(rule == 0))
-            
-        # Drop empty rules if necessary
-        if empty:
-            self.parameters.drop(empty, inplace=True, errors="ignore")
+                # Compute statistics for mean and standard deviation
+                mean = dfnew.iloc[:, :m].mean().values.reshape(-1, 1)
+                self.X_.append(dfnew.iloc[:, :m].values)
+                std = dfnew.iloc[:, :m].std().values.reshape(-1, 1)
+                y_mean = dfnew.iloc[:, m].mean()
+                y_std = dfnew.iloc[:, m].std()
+                num_obs = len(dfnew.iloc[:, m])
+                
+                # Handle missing or invalid standard deviation values
+                std = np.where(np.isnan(std) | (std == 0.), 1.0, std)
+                y_std = 1.0 if np.isnan(y_std) or y_std == 0.0 else y_std
+                
+                # Initialize the appropriate rule
+                self.initialize_rule(y[0], mean, std, y_mean, y_std, num_obs, is_first=(rule == 0))
         
         # Preallocate space for the outputs for better performance
         self.y_pred_training = np.zeros((y_shape))
@@ -707,11 +723,15 @@ class NewMamdaniRegressor(BaseNMFISiS):
             # Compute the normalized firing degree
             self.firing_degree(x)
             # Compute the output
-            Output = sum( self.parameters['y_mean'] * self.parameters['firing_degree'] ) / sum( self.parameters['firing_degree'] )
+            Output = sum(row[2] * row[6] for row in self.parameters_list)
             # Store the output
             self.y_pred_training[k,] = Output
             # Store the output
             self.ResidualTrainingPhase[k,] = (Output - y[k]) ** 2
+            
+        # Save the rules to a dataframe
+        self.parameters = pd.DataFrame(self.parameters_list, columns=['mean', 'std', 'y_mean', 'y_std', 'NumObservations', 'tau', 'firing_degree'])
+        
         # Return the predictions
         return self.y_pred_training
             
@@ -748,10 +768,7 @@ class NewMamdaniRegressor(BaseNMFISiS):
             # Compute the normalized firing degree
             self.firing_degree(x)
             # Compute the output
-            if sum( self.parameters['firing_degree']) == 0:
-                Output = 0
-            else:
-                Output = sum( self.parameters['y_mean'] * self.parameters['firing_degree'] ) / sum( self.parameters['firing_degree'] )
+            Output = sum(row[2] * row[6] for row in self.parameters_list)
             # Store the output
             self.y_pred_test[k,] = Output
 
@@ -759,16 +776,56 @@ class NewMamdaniRegressor(BaseNMFISiS):
     
     def initialize_rule(self, y, mean, std, y_mean, y_std, num_obs, is_first=False):
         
+        # Create a list with the parameters
+        self.parameters_list.append([mean, std, y_mean, y_std, num_obs, 0, 1.])
+        
         if is_first:
-            self.parameters = pd.DataFrame([[mean, std, y_mean, y_std, num_obs, np.array([]), 1., 1., 1.]], columns = ['mean', 'std', 'y_mean', 'y_std', 'NumObservations', 'tau', 'firing_degree_min', 'firing_degree_max', 'firing_degree'])
             Output = y
             self.y_pred_training = np.append(self.y_pred_training, Output)
             self.ResidualTrainingPhase = np.append(self.ResidualTrainingPhase,(Output - y)**2)
+            
+    def tau(self, x):
         
-        else:
-            NewRow = pd.DataFrame([[mean, std, y_mean, y_std, num_obs, np.array([]), 1., 1., 1.]], columns = ['mean', 'std', 'y_mean', 'y_std', 'NumObservations', 'tau', 'firing_degree_min', 'firing_degree_max', 'firing_degree'])
-            self.parameters = pd.concat([self.parameters, NewRow], ignore_index=True)
+        # Variable to sum tau
+        sum_tau = 0
+        for row in range(len(self.parameters_list)):
+            if self.fuzzy_operator == "prod":
+                tau = np.prod(self.Gaussian_membership(
+                    self.parameters_list[row][0], x,  self.parameters_list[row][1]))
+            elif self.fuzzy_operator == "max":
+                tau = np.max(self.Gaussian_membership(
+                    self.parameters_list[row][0], x,  self.parameters_list[row][1]))
+            elif self.fuzzy_operator == "min":
+                tau = np.min(self.Gaussian_membership(
+                    self.parameters_list[row][0], x,  self.parameters_list[row][1]))
+            elif self.fuzzy_operator == "minmax":
+                tau = (np.min(self.Gaussian_membership(
+                    self.parameters_list[row][0], x,  self.parameters_list[row][1]))
+                    * np.max(self.Gaussian_membership(
+                    self.parameters_list[row][0], x,  self.parameters_list[row][1])))
+            elif self.fuzzy_operator == "equal":
+                tau = 1
+            
+            # Check if it is necessary to multiply tau by the number of observations
+            if self.ponder == True:
+                tau *= self.parameters_list[row][4]
+                
+            self.parameters_list[row][5] = max(tau, 1e-10)  # Avoid zero values
+            sum_tau += max(tau, 1e-10)
         
+        return sum_tau
+
+    def firing_degree(self, x):
+        
+        # Initialize the total sum
+        sum_tau = self.tau(x)
+        
+        if sum_tau == 0:
+            sum_tau = 1 / self.parameters.shape[0]
+        for row in range(len(self.parameters_list)):
+            self.parameters_list[row][6] = self.parameters_list[row][5] / sum_tau
+    
+            
 class NewMamdaniClassifier(BaseNMFISiS):
     
     """Regression based on New Mamdani Regressor.
@@ -810,18 +867,19 @@ class NewMamdaniClassifier(BaseNMFISiS):
 
     """
         
-    def __init__(self, fuzzy_operator='minmax'):
+    def __init__(self, fuzzy_operator='minmax', ponder=True):
         
-        super().__init__(fuzzy_operator)
+        super().__init__(fuzzy_operator, ponder)
         
         # Models' parameters
-        self.parameters = pd.DataFrame(columns=['mean', 'std', 'y', 'NumObservations', 'tau', 'firing_degree'])
+        self.parameters_list = []
         
         # Initialize variables
         self.list_unique = None
         self.mapped_values = None
         self.mapping = None
         self.reverse_mapping = None
+        self.dtype = None
         
         
     def fit(self, X, y):
@@ -880,7 +938,9 @@ class NewMamdaniClassifier(BaseNMFISiS):
             self.list_unique = np.unique(y)
         else:
             raise ValueError("Target y contains neither all numeric nor all string values.")
-            
+        
+        # Store y dtype
+        self.dtype = y.dtype
         
         # Concatenate the data
         data = np.concatenate((X, y.reshape(-1,1)), axis=1)
@@ -912,34 +972,43 @@ class NewMamdaniClassifier(BaseNMFISiS):
             num_obs = cluster_data.shape[0]
         
             # Append cluster data and update parameters
-            self.X_.append(values_X)
-            new_row = {'mean': X_mean, 'std': X_std, 'y': y_rule, 'NumObservations': num_obs}
-            self.parameters = pd.concat([self.parameters, pd.DataFrame([new_row])], ignore_index=True)
+            self.X_.append(values_X)            
+            self.parameters_list.append([X_mean, X_std, y_rule, num_obs, 0., 0.])
 
         # Preallocate space for the outputs for better performance
         # Map the numeric values back to string using the mapping
-        self.y_pred_training = np.zeros(X_shape[0], dtype=object)
+        self.y_pred_training = np.zeros(X_shape[0], dtype=self.dtype)
     
         # Precompute necessary structures to avoid repeated operations in the loop
         for k, x in enumerate(X):
+            
             # Prepare the input vector
             x = x.reshape(-1, 1)
             
             # Compute the normalized firing degree
             self.firing_degree(x)
             
-            # Get the index of the maximum firing degree
-            idxmax = self.parameters["firing_degree"].astype(float).idxmax()
+            # Find the maximum firing_degree degree
+            max_firing = 0
+            idxmax = 0
+            for row in range(len(self.parameters_list)):
+                if self.parameters_list[row][5] > max_firing:
+                    max_firing = self.parameters_list[row][5]
+                    idxmax = row
             
             # Compute the mode of the output corresponding to the rule with max firing degree
-            Output = mode(self.parameters.loc[idxmax, 'y'], keepdims=False).mode
+            Output = mode(self.parameters_list[idxmax][2], keepdims=False).mode
             
             # Store the output in the preallocated array
             self.y_pred_training[k] = Output
         
         # Check if the original y were string
         if self.reverse_mapping is not None:
-            self.y_pred_test = [self.reverse_mapping.get(val) for val in self.y_pred_test]
+            self.y_pred_training = [self.reverse_mapping.get(val) for val in self.y_pred_training]
+        
+        # Save parameters to a dataframe
+        self.parameters = pd.DataFrame(self.parameters_list, columns=['mean', 'std', 'y', 'NumObservations', 'tau', 'firing_degree'])
+        
         # Return the predictions
         return self.y_pred_training
      
@@ -966,23 +1035,33 @@ class NewMamdaniClassifier(BaseNMFISiS):
         
         # Preallocate space for the outputs for better performance
         # Map the numeric values back to string using the mapping
-        self.y_pred_training = np.zeros(X_shape[0], dtype=object)
+        self.y_pred_test = np.zeros(X_shape[0], dtype=self.dtype)
         
         for k in range(X_shape[0]):
+            
             # Prepare the first input vector
             x = X[k,].reshape((1,-1)).T
+            
             # Compute the normalized firing degree
             self.firing_degree(x)
+            
             # Find the maximum firing_degree degree
-            idxmax = self.parameters["firing_degree"].astype(float).idxmax()
-            # Compute the output
-            Output = st.mode(self.parameters.loc[idxmax,'y'])
+            max_firing = 0
+            idxmax = 0
+            for row in range(len(self.parameters_list)):
+                if self.parameters_list[row][5] > max_firing:
+                    max_firing = self.parameters_list[row][5]
+                    idxmax = row
+            
+            # Compute the mode of the output corresponding to the rule with max firing degree
+            Output = mode(self.parameters_list[idxmax][2], keepdims=False).mode
             # Store the output in the preallocated array
-            self.y_pred_training[k] = Output
+            self.y_pred_test[k] = Output
         
         # Check if the original y were string
         if self.reverse_mapping is not None:
             self.y_pred_test = [self.reverse_mapping.get(val) for val in self.y_pred_test]
+            
         return self.y_pred_test
     
     # Mapping function for string to numeric
@@ -992,3 +1071,44 @@ class NewMamdaniClassifier(BaseNMFISiS):
         mapped_values = [mapping[val] for val in y]
         
         return mapped_values, mapping
+    
+    def tau(self, x):
+        
+        # Variable to sum tau
+        sum_tau = 0
+        for row in range(len(self.parameters_list)):
+            if self.fuzzy_operator == "prod":
+                tau = np.prod(self.Gaussian_membership(
+                    self.parameters_list[row][0], x,  self.parameters_list[row][1]))
+            elif self.fuzzy_operator == "max":
+                tau = np.max(self.Gaussian_membership(
+                    self.parameters_list[row][0], x,  self.parameters_list[row][1]))
+            elif self.fuzzy_operator == "min":
+                tau = np.min(self.Gaussian_membership(
+                    self.parameters_list[row][0], x,  self.parameters_list[row][1]))
+            elif self.fuzzy_operator == "minmax":
+                tau = (np.min(self.Gaussian_membership(
+                    self.parameters_list[row][0], x,  self.parameters_list[row][1]))
+                    * np.max(self.Gaussian_membership(
+                    self.parameters_list[row][0], x,  self.parameters_list[row][1])))
+            elif self.fuzzy_operator == "equal":
+                tau = 1
+            
+            # Check if it is necessary to multiply tau by the number of observations
+            if self.ponder == True:
+                tau *= self.parameters_list[row][3]
+                
+            self.parameters_list[row][4] = max(tau, 1e-10)  # Avoid zero values
+            sum_tau += max(tau, 1e-10)
+        
+        return sum_tau
+
+    def firing_degree(self, x):
+        
+        # Initialize the total sum
+        sum_tau = self.tau(x)
+        
+        if sum_tau == 0:
+            sum_tau = 1 / self.parameters.shape[0]
+        for row in range(len(self.parameters_list)):
+            self.parameters_list[row][5] = self.parameters_list[row][4] / sum_tau
