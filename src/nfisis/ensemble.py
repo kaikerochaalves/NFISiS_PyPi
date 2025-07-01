@@ -3,7 +3,18 @@
 Created on Mon Jan 27 15:14:19 2025
 
 @author: Kaike Sa Teles Rocha Alves
-@email: kaikerochaalves@outlook.com
+@email_1: kaikerochaalves@outlook.com
+@email_2: kaike.alves@estudante.ufjf.br
+
+As a Data Science Manager at PGE-PR and a Ph.D. in Computational Modeling
+at the Federal University of Juiz de Fora (UFJF), I specialize in artificial
+intelligence, focusing on the study, development, and application of fuzzy
+inference models. My academic journey includes a scholarship that allowed me
+to pursue a year of my Ph.D. at the University of Nottingham/UK, where I was
+a member of the LUCID (Laboratory for Uncertainty in Data and Decision Making)
+under the supervision of Professor Christian Wagner. My background in Industrial
+Engineering provides me with a holistic view of organizational processes,
+enabling me to propose efficient solutions and reduce waste.
 """
 
 # Importing libraries
@@ -24,31 +35,72 @@ from nfisis.fuzzy import NTSK, NewMamdaniRegressor
 
 class BaseRNFISiS:
     
-    r"""This is the Base for the regression models.
+    r"""This is the Base for the ensemble regression models.
 
     Parameters
     ----------
-    n_estimators (int):
-    The number of estimators will be generated for the ensemble. 
-    
+    n_estimators : int, default=100
+        The number of individual models (estimators) that will be generated
+        and combined to form the ensemble. A higher number of estimators
+        generally leads to a more robust and accurate ensemble but increases
+        training time. Think of this as how many "experts" you're gathering
+        to make a final decision.
+
     n_trials : int, default=5
-        Number of trials per iteration.
-        
-    combination: str, default: "mean"
-    Techinique to combine the results
-    
-    error_metric (str or callable):
-    The metric used to evaluate the performance of candidate solutions. This can be a string representing a predefined metric (e.g., "mse" for mean squared error) or a custom function that returns an error score.
-    
-    ponder (bool):
-    Indicates weather the fuzzy model will ponder the information.
-    
-    parallel_processing (int):
-    Determines whether to use parallel processing for the optimization process. 
-    
-    -1: Use all availables cpu
-    0: Not parallelise
-    >1: use the exactly amount appointed
+        For each estimator in the ensemble, this parameter specifies the
+        number of attempts (trials) to find the best-performing underlying
+        model and its optimal feature subset. More trials increase the
+        chances of discovering a better individual model, but it also means
+        more computational effort.
+
+    combination : {'mean', 'median', 'weighted_average'}, default='mean'
+        This hyperparameter dictates the technique used to combine the
+        predictions from all the individual estimators in the ensemble into
+        a single final prediction.
+
+        - 'mean': The final prediction is the simple average of all individual
+          model predictions. This is a straightforward and often effective method.
+        - 'median': The final prediction is the median of all individual model
+          predictions. This can be more robust to outliers in individual
+          predictions than the mean.
+        - 'weighted_average': The final prediction is a weighted average of the
+          individual model predictions. Models that performed better during their
+          training (i.e., had lower errors) are given a higher weight, allowing
+          more "reliable" experts to influence the final outcome more significantly.
+
+    error_metric : {'RMSE', 'NRMSE', 'NDEI', 'MAE', 'MAPE', 'CPPM'}, default='RMSE'
+        This is the performance metric used to evaluate and select the best
+        individual models during the training process. The goal is to minimize
+        these error metrics (or maximize CPPM, as it's a "correctness" metric).
+
+        - 'RMSE': Root Mean Squared Error. Penalizes large errors more heavily,
+          making it sensitive to outliers.
+        - 'NRMSE': Normalized Root Mean Squared Error. RMSE scaled by the range
+          of the target variable, making it unit-less and easier to compare
+          across different datasets.
+        - 'NDEI': Non-Dimensional Error Index. Similar to NRMSE but scaled by
+          the standard deviation of the target variable.
+        - 'MAE': Mean Absolute Error. Represents the average magnitude of the
+          errors, giving equal weight to all errors. Less sensitive to outliers
+          than RMSE.
+        - 'MAPE': Mean Absolute Percentage Error. Expresses error as a
+          percentage, which is often intuitive for business contexts. It can be
+          problematic with zero or near-zero actual values.
+        - 'CPPM': Correct Percentual Predictions of Movement. Measures the
+          percentage of times the model correctly predicts the direction of
+          change (increase or decrease) in the target variable. A higher CPPM
+          indicates better directional forecasting. For optimization, its
+          negative value is used as the fitness function.
+
+    parallel_processing : int
+        This parameter controls whether the training of individual estimators in
+        the ensemble will be performed in parallel to speed up the process.
+
+        - -1: Utilizes all available CPU cores on your system, maximizing
+          parallel computation.
+        - 0: Disables parallel processing; training will be performed sequentially.
+        - >0: Uses the exact specified number of CPU cores for parallel execution.
+          For example, `parallel_processing=4` would use 4 cores.
 
     """
     
@@ -183,20 +235,10 @@ class BaseRNFISiS:
 
 class R_NTSK(BaseRNFISiS):
     
-    r"""Regression based on Genetic New Takagi-Sugeno-Kang.
+    r"""Regression based on Random New Takagi-Sugeno-Kang.
 
-    The genetic algorithm works as an attribute selector algorithm combined with the ML model.
+    The ensemble R-NTSK represents a robust model for time series forecasting
 
-    Parameters
-    ----------
-    
-
-    Attributes
-    ----------
-    
-    See Also
-    --------
-    GEN_NMR : Genetic New Mamdani Regressor. Implements a new Mamdani approach for regression.
 
     """
     
@@ -435,20 +477,9 @@ class R_NTSK(BaseRNFISiS):
     
 class R_NMR(BaseRNFISiS):
     
-    r"""Regression based on New Mamdani Regressor.
+    r"""Regression based on Random New Mamdani Regressor.
 
-    The genetic algorithm works as an attribute selector algorithm combined with the ML model.
-
-    Parameters
-    ----------
-
-
-    Attributes
-    ----------
-    
-    See Also
-    --------
-    R_NTSK : Genetic New Mamdani Regressor. Implements a new Mamdani approach for regression.
+    The ensemble R-NMR represents a robust model for time series forecasting
 
     """
     

@@ -3,7 +3,18 @@
 Created on Mon Jan 27 15:14:19 2025
 
 @author: Kaike Sa Teles Rocha Alves
-@email: kaikerochaalves@outlook.com
+@email_1: kaikerochaalves@outlook.com
+@email_2: kaike.alves@estudante.ufjf.br
+
+As a Data Science Manager at PGE-PR and a Ph.D. in Computational Modeling
+at the Federal University of Juiz de Fora (UFJF), I specialize in artificial
+intelligence, focusing on the study, development, and application of fuzzy
+inference models. My academic journey includes a scholarship that allowed me
+to pursue a year of my Ph.D. at the University of Nottingham/UK, where I was
+a member of the LUCID (Laboratory for Uncertainty in Data and Decision Making)
+under the supervision of Professor Christian Wagner. My background in Industrial
+Engineering provides me with a holistic view of organizational processes,
+enabling me to propose efficient solutions and reduce waste.
 """
 
 # Importing libraries
@@ -21,7 +32,7 @@ from nfisis.fuzzy import NTSK, NewMamdaniRegressor
 
 class BaseGENNFISiS:
     
-    r"""This is the Base for the regression models.
+    r"""This is the Base for the genetic regression models.
 
     Parameters
     ----------
@@ -187,7 +198,7 @@ class GEN_NTSK(BaseGENNFISiS):
         Defines the forgetting factor for the algorithm to estimate the consequent parameters.
         This parameters is only used when RLS_option is "RLS"
 
-    adaptive_filter : {'RLS', 'wRLS'}, default='RLS'
+    adaptive_filter : {'RLS', 'wRLS'}, default='wRLS'
         Algorithm used to compute the consequent parameters:
 
         - 'RLS' will use :class:`RLS`
@@ -205,16 +216,47 @@ class GEN_NTSK(BaseGENNFISiS):
         Omega is a parameters used to initialize the algorithm to estimate
         the consequent parameters
 
-    
+    ponder : bool, default=True
+        If True, the firing degree of each fuzzy rule will be weighted by the number of observations
+        associated with that rule. This gives more influence to rules derived from a larger
+        number of training data points. If False, all rules contribute equally regardless
+        of their observation count.
 
-    Attributes
-    ----------
-    
+    num_generations : int, default=10
+        Number of generations the genetic algorithm will run. A higher number of generations
+        allows the algorithm to explore more solutions and potentially find a better one,
+        but increases computation time.
 
+    num_parents_mating : int, default=5
+        Number of parents that will be selected to mate in each generation.
+        These parents are chosen based on their fitness values to produce offspring.
 
-    See Also
-    --------
-    GEN_NMR : Genetic New Mamdani Regressor. Implements a new Mamdani approach for regression.
+    sol_per_pop : int, default=10
+        Number of solutions (individuals) in the population for the genetic algorithm.
+        A larger population can increase the diversity of solutions explored,
+        but also increases computational cost per generation.
+
+    error_metric : {'RMSE', 'NRMSE', 'NDEI', 'MAE', 'MAPE'}, default='RMSE'
+        The error metric used as the fitness function for the genetic algorithm.
+        The genetic algorithm aims to minimize this metric (by maximizing its negative value).
+        - 'RMSE': Root Mean Squared Error.
+        - 'NRMSE': Normalized Root Mean Squared Error.
+        - 'NDEI': Non-Dimensional Error Index.
+        - 'MAE': Mean Absolute Error.
+        - 'MAPE': Mean Absolute Percentage Error.
+
+    print_information : bool, default=False
+        If True, information about the genetic algorithm's progress (e.g., generation number,
+        current fitness, and fitness change) will be printed during the `fit` process.
+
+    parallel_processing : list or None, default=None
+        Configuration for parallel processing using PyGAD's capabilities.
+        Refer to PyGAD's documentation for valid formats. If None, parallel processing
+        is not used. 
+        - parallel_processing=None: no parallel processing is applied,
+        - parallel_processing=['process', 10]: applies parallel processing with 10 processes,
+        - parallel_processing=['thread', 5] or parallel_processing=5: applies parallel processing with 5 threads.
+
 
     """
     
@@ -440,15 +482,47 @@ class GEN_NMR(BaseGENNFISiS):
         - 'min' will use :class:`minimum value`
         - 'minmax' will use :class:`minimum value multiplied by maximum`
     
+    ponder : bool, default=True
+        If True, the firing degree of each fuzzy rule will be weighted by the number of observations
+        associated with that rule. This gives more influence to rules derived from a larger
+        number of training data points. If False, all rules contribute equally regardless
+        of their observation count.
 
-    Attributes
-    ----------
-    
+    num_generations : int, default=10
+        Number of generations the genetic algorithm will run. A higher number of generations
+        allows the algorithm to explore more solutions and potentially find a better one,
+        but increases computation time.
 
+    num_parents_mating : int, default=5
+        Number of parents that will be selected to mate in each generation.
+        These parents are chosen based on their fitness values to produce offspring.
 
-    See Also
-    --------
-    GEN_NTSK : Genetic New Takagi-Sugeno-Kang.
+    sol_per_pop : int, default=10
+        Number of solutions (individuals) in the population for the genetic algorithm.
+        A larger population can increase the diversity of solutions explored,
+        but also increases computational cost per generation.
+
+    error_metric : {'RMSE', 'NRMSE', 'NDEI', 'MAE', 'MAPE'}, default='RMSE'
+        The error metric used as the fitness function for the genetic algorithm.
+        The genetic algorithm aims to minimize this metric (by maximizing its negative value).
+        - 'RMSE': Root Mean Squared Error.
+        - 'NRMSE': Normalized Root Mean Squared Error.
+        - 'NDEI': Non-Dimensional Error Index.
+        - 'MAE': Mean Absolute Error.
+        - 'MAPE': Mean Absolute Percentage Error.
+
+    print_information : bool, default=False
+        If True, information about the genetic algorithm's progress (e.g., generation number,
+        current fitness, and fitness change) will be printed during the `fit` process.
+
+    parallel_processing : list or None, default=None
+        Configuration for parallel processing using PyGAD's capabilities.
+        Refer to PyGAD's documentation for valid formats. If None, parallel processing
+        is not used. 
+        - parallel_processing=None: no parallel processing is applied,
+        - parallel_processing=['process', 10]: applies parallel processing with 10 processes,
+        - parallel_processing=['thread', 5] or parallel_processing=5: applies parallel processing with 5 threads.
+        
 
     """
     

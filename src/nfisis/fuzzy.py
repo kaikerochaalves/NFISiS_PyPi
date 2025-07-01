@@ -3,7 +3,18 @@
 Created on Mon Jan 27 15:14:19 2025
 
 @author: Kaike Sa Teles Rocha Alves
-@email: kaikerochaalves@outlook.com
+@email_1: kaikerochaalves@outlook.com
+@email_2: kaike.alves@estudante.ufjf.br
+
+As a Data Science Manager at PGE-PR and a Ph.D. in Computational Modeling
+at the Federal University of Juiz de Fora (UFJF), I specialize in artificial
+intelligence, focusing on the study, development, and application of fuzzy
+inference models. My academic journey includes a scholarship that allowed me
+to pursue a year of my Ph.D. at the University of Nottingham/UK, where I was
+a member of the LUCID (Laboratory for Uncertainty in Data and Decision Making)
+under the supervision of Professor Christian Wagner. My background in Industrial
+Engineering provides me with a holistic view of organizational processes,
+enabling me to propose efficient solutions and reduce waste.
 """
 # Importing libraries
 import pandas as pd
@@ -13,6 +24,9 @@ from scipy.stats import mode
 
 class BaseNMFISiS:
     def __init__(self, fuzzy_operator, ponder):
+        
+        r"""This is the Base for the new fuzzy inference systems
+        """
         # Validate `fuzzy_operator`: 'prod', 'max', 'min', 'minmax', 'equal'
         if fuzzy_operator not in {"prod", "max", "min", "minmax", "equal"}:
             raise ValueError("fuzzy_operator must be one of {'prod', 'max', 'min', 'minmax', 'equal'}.")
@@ -93,7 +107,7 @@ class NTSK(BaseNMFISiS):
     r"""Regression based on New Takagi-Sugeno-Kang.
 
     The target is predicted by creating rules, composed of fuzzy sets.
-    Then, the output is computed as a firing_degreeed average of each local output 
+    Then, the output is computed as a firing_degreee average of each local output 
     (output of each rule).
 
     Read more in the paper https://doi.org/10.1016/j.engappai.2024.108155.
@@ -114,7 +128,7 @@ class NTSK(BaseNMFISiS):
         - 'RLS' will use :class:`RLS`
         - 'wRLS' will use :class:`wRLS`
     
-    fuzzy_operator : {'prod', 'max', 'min'}, default='prod'
+    fuzzy_operator : {'prod', 'max', 'min', 'minmax'}, default='prod'
         Choose the fuzzy operator:
 
         - 'prod' will use :`product`
@@ -126,13 +140,13 @@ class NTSK(BaseNMFISiS):
         Omega is a parameters used to initialize the algorithm to estimate
         the consequent parameters
 
+    ponder : boolean, default=True
+        ponder controls whether the firing degree of each fuzzy rule 
+        is weighted by the number of observations (data points) 
+        associated with that rule during the tau calculation.
+        Used to avoid the influence of less representative rules
+        
     
-
-    Attributes
-    ----------
-    
-
-
     See Also
     --------
     NMC : New Mamdani Classifier. Implements a new Mamdani approach for classification.
@@ -550,14 +564,14 @@ class NewMamdaniRegressor(BaseNMFISiS):
     r"""Regression based on New Mamdani Regressor.
 
     The target is predicted by creating rules, composed of fuzzy sets.
-    Then, the output is computed as a firing_degreeed average of each local output 
+    Then, the output is computed as a firing_degreee average of each local output 
     (output of each rule).
 
 
     Parameters
     ----------
     rules : int, default=5
-        Number of fuzzy rules will be created.
+        Number of fuzzy rules that will be created.
 
     
     fuzzy_operator : {'prod', 'max', 'min', 'equal'}, default='prod'
@@ -568,16 +582,17 @@ class NewMamdaniRegressor(BaseNMFISiS):
         - 'min' will use :class:`minimum value`
         - 'minmax' will use :class:`minimum value multiplied by maximum`
         - 'equal' use the same firing degree for all rules
-
     
-    Attributes
-    ----------
-    
-
+    ponder : boolean, default=True
+        ponder controls whether the firing degree of each fuzzy rule 
+        is weighted by the number of observations (data points) 
+        associated with that rule during the tau calculation.
+        Used to avoid the influence of less representative rules
+        
     See Also
     --------
     NMC : New Mamdani Classifier. Implements a new Mamdani approach for classification.
-    NMR : New Mamdani Regressor. Implements a new Mamdani approach for regression.
+    NTSK : New Takagi-Sugeno-Kang. Implements a new Takagi-Sugeno-Kang approach for regression.
     
 
     Notes
@@ -811,20 +826,20 @@ class NewMamdaniRegressor(BaseNMFISiS):
             
 class NewMamdaniClassifier(BaseNMFISiS):
     
-    """Regression based on New Mamdani Regressor.
+    """Regression based on New Mamdani Classifier.
 
-    The target is predicted by creating rules, composed of fuzzy sets.
-    Then, the output is computed as a firing_degreeed average of each local output 
+    The class is predicted by creating rules, composed of fuzzy sets.
+    Then, the output is computed as a firing_degree average of each local output 
     (output of each rule).
 
 
     Parameters
     ----------
     rules : int, default=5
-        Number of fuzzy rules will be created.
+        Number of fuzzy rules that will be created.
 
     
-    fuzzy_operator : {'prod', 'max', 'min'}, default='prod'
+    fuzzy_operator : {'prod', 'max', 'min', 'minmax'}, default='prod'
         Choose the fuzzy operator:
 
         - 'prod' will use :`product`
@@ -832,25 +847,15 @@ class NewMamdaniClassifier(BaseNMFISiS):
         - 'min' will use :class:`minimum value`
         - 'minmax' will use :class:`minimum value multiplied by maximum`
 
-    
-    Attributes
-    ----------
-    
 
     See Also
     --------
-    NMC : New Mamdani Classifier. Implements a new Mamdani approach for classification.
+    NTSK : New Takagi-Sugeno-Kang. Implements a new Takagi-Sugeno-Kang approach for regression.
     NMR : New Mamdani Regressor. Implements a new Mamdani approach for regression.
-    
-
-    Notes
-    -----
-    
-    NMC is a specific case of NMR for classification.
 
     """
         
-    def __init__(self, fuzzy_operator='minmax', ponder=True):
+    def __init__(self, fuzzy_operator='prod', ponder=True):
         
         super().__init__(fuzzy_operator, ponder)
         
