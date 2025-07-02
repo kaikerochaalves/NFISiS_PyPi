@@ -6,18 +6,28 @@ Author: Kaike Sa Teles Rocha Alves
 
 NFISiS (new fuzzy inference systems) is a package that contains new machine learning models developed by Kaike Alves during his PhD research. 
 
-    Website: kaikealves.weebly.com
-    Documentation: Fourthcoming
-    Email: kaikerochaalves@outlook.com
-    Source code on git hub: https://github.com/kaikerochaalves/NFISiS_PyPi
-    Doi for the code: http://dx.doi.org/10.5281/zenodo.15746843
-    Doi for a paper: http://dx.doi.org/10.48550/arXiv.2506.06285
-    Doi for the thesis: http://dx.doi.org/10.13140/RG.2.2.25910.00324
+    Author: Kaike Sa Teles Rocha Alves (PhD)
+    Email: kaikerochaalves@outlook.com or kaike.alves@estudante.ufjf.br
+
+Doi for preprint: http://dx.doi.org/10.48550/arXiv.2506.06285
+
+Doi to cite the code: http://dx.doi.org/10.5281/zenodo.15746843
+
+Github repository: https://github.com/kaikerochaalves/NFISiS_PyPi
+
+Doi for the thesis: http://dx.doi.org/10.13140/RG.2.2.25910.00324
 
 It provides:
 
-    the following machine learning models in the context of fuzzy systems: NMC, NMR, NTSK, GEN_NMR, GEN_NTSK, R_NMR, R_NTSK
+1. New Mamdani Classifier: NewMamadaniClassifier
+2. New Mamdani Regressor: NewMamdaniRegressor
+3. New Takagi-Sugeno-Kang: NTSK
+4. Genetic NMR: GEN_NMR
+5. Genetic NTSK: GEN_NTSK
+6. Random NMR: R_NMR
+7. Random NTSK: R_NTSK
 
+Cite: SA TELES ROCHA ALVES, K., & Pestana de Aguiar, E. (2025). NFISiS: new fuzzy inference systems. Zenodo. https://doi.org/10.5281/zenodo.15746843
 
 ## Description:
 
