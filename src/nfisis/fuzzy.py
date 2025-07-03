@@ -8,14 +8,16 @@ Created on Mon Jan 27 15:14:19 2025
 
 As a Data Science Manager at PGE-PR and a Ph.D. in Computational Modeling
 at the Federal University of Juiz de Fora (UFJF), I specialize in artificial
-intelligence, focusing on the study, development, and application of fuzzy
-inference models. My academic journey includes a scholarship that allowed me
-to pursue a year of my Ph.D. at the University of Nottingham/UK, where I was
-a member of the LUCID (Laboratory for Uncertainty in Data and Decision Making)
-under the supervision of Professor Christian Wagner. My background in Industrial
+intelligence, focusing on the study, development, and application of machine learning
+models, under the supervision of Prof. Eduardo Pestana de Aguiar. My academic journey 
+includes a scholarship that allowed me to pursue a year of my Ph.D. at the 
+University of Nottingham/UK, where I was a member of the LUCID
+(Laboratory for Uncertainty in Data and Decision Making) under the 
+supervision of Professor Christian Wagner. My background in Industrial
 Engineering provides me with a holistic view of organizational processes,
 enabling me to propose efficient solutions and reduce waste.
 """
+
 # Importing libraries
 import pandas as pd
 import numpy as np

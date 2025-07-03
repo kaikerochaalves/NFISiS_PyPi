@@ -7,7 +7,7 @@ packages = ["src/nfisis"]
 
 [project]
 name = "nfisis"
-version = "0.1.5"
+version = "0.1.6"
 authors = [
     { name = "Kaike Sa Teles Rocha Alves", email = "kaikerochaalves@outlook.com" }
 ]
